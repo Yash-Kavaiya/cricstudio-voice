@@ -127,7 +127,7 @@ export type BackgroundId =
   | 'usaStars'
   | 'proteasGreenGold'
   // brand-inspired design systems (colours, type and shapes only: no logos)
-  | 'googleMaterial'
+  | 'assemblyai'
   | 'microsoftFluent'
   | 'claudePaper'
   | 'xMono'
@@ -155,7 +155,7 @@ export interface BackgroundMeta {
 }
 
 export const BACKGROUNDS: BackgroundMeta[] = [
-  { id: 'googleMaterial', name: 'Google · Material', colors: ['#f8fafd', '#0b57d0'], accent: '#0b57d0', group: 'Brand-inspired', light: true },
+  { id: 'assemblyai', name: 'AssemblyAI · Paper', colors: ['#fdfcf8', '#3923c7'], accent: '#3923c7', group: 'Brand-inspired', light: true },
   { id: 'microsoftFluent', name: 'Microsoft · Fluent', colors: ['#0b0f1a', '#0078d4'], accent: '#0078d4', group: 'Brand-inspired' },
   { id: 'claudePaper', name: 'Claude · Paper', colors: ['#f0eee6', '#d97757'], accent: '#d97757', group: 'Brand-inspired', light: true },
   { id: 'xMono', name: 'X · Mono', colors: ['#000000', '#2f3336'], accent: '#1d9bf0', group: 'Brand-inspired' },

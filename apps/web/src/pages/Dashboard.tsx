@@ -31,8 +31,66 @@ import type { MatchListItem } from '@cricstudio/shared';
 import { useColorMode } from '../App';
 import { Icon } from '../components/Icon';
 import { Logo } from '../components/Logo';
-import { api } from '../lib/api';
+import { api, apiUrl } from '../lib/api';
 import { studioStore, type SavedStudio } from '../lib/storage';
+import { AAI } from '../theme';
+
+const FEATURES = [
+  { icon: 'record_voice_over', title: 'A commentator with a real voice', body: 'Every boundary, wicket and milestone is written by LLM Gateway from the live scorecard and spoken by AssemblyAI voices — straight into the broadcast mix.', tag: 'Voice Agent API · TTS' },
+  { icon: 'forum', title: 'Talk back to the commentary box', body: 'Hold to ask “How many do they need?”. Streaming STT hears you, the agent checks the scorecard with a tool call, and answers out loud in about a second.', tag: 'Voice Agent API · tools' },
+  { icon: 'closed_caption', title: 'Realtime captions & voice commands', body: 'Hosts and guests are captioned word-by-word. Say “Studio, show the batting card” and the director obeys — no hands.', tag: 'Universal-Streaming' },
+  { icon: 'summarize', title: 'Studio recaps on demand', body: 'One click (or one sentence) and the presenter reads a grounded recap of the passage of play.', tag: 'LLM Gateway' },
+];
+
+function Hero({ onDemo }: { onDemo: () => void | Promise<void> }) {
+  const [playing, setPlaying] = useState(false);
+  const hear = async () => {
+    setPlaying(true);
+    try {
+      const r = await fetch(apiUrl(`/api/aai/tts?voice=charles&text=${encodeURIComponent('And that is FOUR off the final ball! The Stars have done it — what a finish, called live by AssemblyAI!')}`));
+      if (!r.ok) throw new Error();
+      const a = new Audio(URL.createObjectURL(await r.blob()));
+      a.onended = () => setPlaying(false);
+      await a.play();
+    } catch {
+      setPlaying(false);
+    }
+  };
+  return (
+    <Box sx={{ mb: 5 }}>
+      <Box sx={{ py: { xs: 4, md: 7 }, px: { xs: 3, md: 6 }, borderRadius: 5, border: 1, borderColor: 'divider', bgcolor: 'background.paper', position: 'relative', overflow: 'hidden' }}>
+        <Box aria-hidden sx={{ position: 'absolute', right: -40, bottom: -10, display: 'flex', gap: '6px', alignItems: 'flex-end', opacity: 0.18 }}>
+          {Array.from({ length: 40 }).map((_, i) => (
+            <Box key={i} sx={{ width: 8, borderRadius: 4, bgcolor: i % 6 === 0 ? AAI.blush : AAI.cobalt, height: 20 + Math.abs(Math.sin(i * 0.7)) * 140, animation: `aaiwave ${1.2 + (i % 5) * 0.2}s ease-in-out ${i * 0.05}s infinite alternate` }} />
+          ))}
+        </Box>
+        <Chip label="AssemblyAI Voice Hackathon · Hack into speech" variant="outlined" sx={{ mb: 2 }} />
+        <Typography variant="h3" sx={{ maxWidth: 820, fontSize: { xs: 34, md: 54 }, lineHeight: 1.05 }}>
+          Live cricket broadcasts, <Box component="span" sx={{ color: 'primary.main' }}>called by voice AI.</Box>
+        </Typography>
+        <Typography color="text.secondary" sx={{ mt: 2, maxWidth: 680, fontSize: 18 }}>
+          A full StreamYard-style studio for cricket — scenes, overlays, autopilot and multistreaming — with an AI commentator you can hear, caption and talk to. Built end-to-end on AssemblyAI.
+        </Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 3.5 }}>
+          <Button size="large" variant="contained" startIcon={<Icon name="play_arrow" />} onClick={onDemo}>Open the demo studio</Button>
+          <Button size="large" variant="outlined" startIcon={<Icon name={playing ? 'graphic_eq' : 'volume_up'} />} onClick={() => void hear()} disabled={playing}>
+            {playing ? 'Playing…' : 'Hear the commentator'}
+          </Button>
+        </Stack>
+      </Box>
+      <Box sx={{ mt: 2, display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr', xl: 'repeat(4, 1fr)' } }}>
+        {FEATURES.map((f) => (
+          <Card key={f.title} sx={{ p: 2.5 }}>
+            <Icon name={f.icon} color={AAI.cobalt} size={28} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mt: 1 }}>{f.title}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{f.body}</Typography>
+            <Typography variant="overline" sx={{ display: 'block', mt: 1.5, color: 'primary.main' }}>{f.tag}</Typography>
+          </Card>
+        ))}
+      </Box>
+    </Box>
+  );
+}
 
 type Filter = 'in' | 'pre' | 'post' | 'all';
 
@@ -59,7 +117,7 @@ function MatchCard({ m, onCreate }: { m: MatchListItem; onCreate: () => void }) 
             <Typography sx={{ flex: 1, fontWeight: t.winner ? 700 : 500 }} noWrap>
               {t.name}
             </Typography>
-            <Typography sx={{ fontFamily: '"Roboto Condensed"', fontWeight: 700, fontSize: 17 }} noWrap>
+            <Typography sx={{ fontFamily: AAI.mono, fontWeight: 600, fontSize: 15 }} noWrap>
               {t.score}
             </Typography>
           </Stack>
@@ -165,12 +223,11 @@ export function Dashboard() {
       </AppBar>
 
       <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Hero onDemo={async () => { const list = matches ?? (await api.matches().catch(() => [] as MatchListItem[])); openCreate(list.find((m) => m.isDemo) ?? null); }} />
         <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'flex-end' }} spacing={2} sx={{ mb: 3 }}>
           <Box sx={{ flex: 1 }}>
-            <Typography variant="h4">Go live with cricket</Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-              Pick a match — live scores, ball-by-ball, scorecards and automated scenes are wired in for you. Stream to YouTube, Facebook, X and Twitch at once.
-            </Typography>
+            <Typography variant="overline" color="text.secondary">Matches</Typography>
+            <Typography variant="h5">Pick a match to call live</Typography>
           </Box>
           <ToggleButtonGroup exclusive size="small" value={filter} onChange={(_, v) => v && setFilter(v)} sx={{ '& .MuiToggleButton-root': { px: 2, borderRadius: 999 } }}>
             <ToggleButton value="in">Live ({counts.in})</ToggleButton>

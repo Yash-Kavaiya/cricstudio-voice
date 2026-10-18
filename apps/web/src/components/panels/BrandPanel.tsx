@@ -5,7 +5,7 @@ import { CaptionsSettings } from './CaptionsSettings';
 import type { StudioClient } from '../../lib/studioClient';
 import { Icon } from '../Icon';
 
-const ACCENTS = ['#1a73e8', '#ea4335', '#34a853', '#f9ab00', '#a142f4', '#12b5cb', '#e8710a', '#d01884'];
+const ACCENTS = ['#3923c7', '#ea4335', '#34a853', '#f9ab00', '#a142f4', '#12b5cb', '#e8710a', '#d01884'];
 
 export function BrandPanel({ client, hostToken }: { client: StudioClient; hostToken: string }) {
   const st = client.state!;

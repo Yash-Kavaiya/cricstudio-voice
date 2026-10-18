@@ -931,45 +931,42 @@ function proteasGreenGold(rc: RenderCtx) {
  * Colour, type and shape language only. No logos or marks are drawn.
  */
 
-/** Material-style light canvas: pastel colour washes and floating rounded shapes */
-function googleMaterial(rc: RenderCtx) {
+/** AssemblyAI-style warm paper canvas with a live cobalt voice waveform */
+function assemblyai(rc: RenderCtx) {
   const { ctx, now } = rc;
-  ctx.fillStyle = '#f8fafd';
+  ctx.fillStyle = '#fdfcf8';
   ctx.fillRect(0, 0, W, H);
   const t = now / 9000;
-  glow(ctx, W * (0.12 + 0.05 * Math.sin(t)), H * 0.15, 760, 'rgba(66,133,244,0.16)');
-  glow(ctx, W * (0.9 + 0.04 * Math.cos(t * 1.2)), H * 0.2, 640, 'rgba(234,67,53,0.11)');
-  glow(ctx, W * 0.82, H * (0.92 + 0.04 * Math.sin(t)), 700, 'rgba(52,168,83,0.12)');
-  glow(ctx, W * 0.18, H * 0.95, 620, 'rgba(251,188,4,0.14)');
-  // floating Material shapes: circle, pill, rounded square, scalloped "cookie"
-  const shapes: [number, number, number, string, number][] = [
-    [0.08, 0.72, 90, 'rgba(66,133,244,0.10)', 0],
-    [0.93, 0.55, 70, 'rgba(234,67,53,0.10)', 1],
-    [0.7, 0.1, 60, 'rgba(52,168,83,0.10)', 2],
-    [0.3, 0.06, 50, 'rgba(251,188,4,0.14)', 3],
-    [0.97, 0.88, 55, 'rgba(66,133,244,0.10)', 3],
-  ];
-  shapes.forEach(([x, y, r, c, kind], i) => {
-    const cx = W * x + Math.sin(now / 3000 + i) * 14;
-    const cy = H * y + Math.cos(now / 3500 + i) * 14;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(now / 9000 + i);
-    ctx.fillStyle = c;
+  glow(ctx, W * (0.15 + 0.05 * Math.sin(t)), H * 0.12, 820, 'rgba(57,35,199,0.10)');
+  glow(ctx, W * (0.88 + 0.04 * Math.cos(t * 1.2)), H * 0.9, 760, 'rgba(136,123,221,0.14)');
+  glow(ctx, W * 0.85, H * 0.15, 520, 'rgba(236,157,146,0.10)');
+  // fine paper grid
+  ctx.strokeStyle = 'rgba(29,27,22,0.045)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 64) {
     ctx.beginPath();
-    if (kind === 0) ctx.arc(0, 0, r, 0, Math.PI * 2);
-    else if (kind === 1) ctx.roundRect(-r * 1.6, -r * 0.6, r * 3.2, r * 1.2, r * 0.6);
-    else if (kind === 2) ctx.roundRect(-r, -r, r * 2, r * 2, r * 0.45);
-    else
-      for (let k = 0; k <= 72; k++) {
-        const a = (k / 72) * Math.PI * 2;
-        const rr2 = r * (1 + 0.1 * Math.cos(a * 9));
-        if (k) ctx.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2);
-        else ctx.moveTo(rr2, 0);
-      }
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= H; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(W, y + 0.5);
+    ctx.stroke();
+  }
+  // speech waveform along the bottom edge
+  const bars = 96;
+  const bw = W / bars;
+  for (let i = 0; i < bars; i++) {
+    const env = Math.sin((i / bars) * Math.PI);
+    const v = 0.35 + 0.65 * Math.abs(Math.sin(now / 420 + i * 0.37) * Math.cos(now / 1300 + i * 0.11));
+    const h = 18 + env * v * 120;
+    ctx.fillStyle = i % 7 === 0 ? 'rgba(236,157,146,0.35)' : 'rgba(57,35,199,0.16)';
+    ctx.beginPath();
+    ctx.roundRect(i * bw + bw * 0.25, H - 24 - h, bw * 0.5, h, bw * 0.25);
     ctx.fill();
-    ctx.restore();
-  });
+  }
 }
 
 /** Fluent-style: deep canvas with a soft "bloom" of translucent petals and acrylic light */
@@ -1133,7 +1130,7 @@ const DRAW: Record<BackgroundId, (rc: RenderCtx, accent: string) => void> = {
   platinumPavilion,
   usaStars,
   proteasGreenGold,
-  googleMaterial,
+  assemblyai,
   microsoftFluent,
   claudePaper,
   xMono,

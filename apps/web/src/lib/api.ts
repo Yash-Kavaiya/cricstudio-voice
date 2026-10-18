@@ -26,7 +26,7 @@ export const api = {
   createStudio: (name: string, matchKey: string | null) =>
     req<StudioCreateResponse>('/api/studios', { method: 'POST', body: JSON.stringify({ name, matchKey }) }),
   studio: (id: string) => req<{ id: string; name: string; matchKey: string | null }>(`/api/studios/${id}`),
-  saveStt: (id: string, hostToken: string, body: { provider?: SttProvider; language?: string; geminiModel?: string; keys?: Partial<Record<CloudSttProvider, string | null>> }) =>
+  saveStt: (id: string, hostToken: string, body: { provider?: SttProvider; language?: string; llmModel?: string; keys?: Partial<Record<CloudSttProvider, string | null>> }) =>
     req<{ stt: SttSettings }>(`/api/studios/${id}/stt`, { method: 'PUT', hostToken, body: JSON.stringify(body) }).then((r) => r.stt),
   testStt: (id: string, hostToken: string, provider: CloudSttProvider, key?: string) =>
     req<{ ok: boolean; error?: string; ms: number }>(`/api/studios/${id}/stt/test`, { method: 'POST', hostToken, body: JSON.stringify({ provider, key }) }),

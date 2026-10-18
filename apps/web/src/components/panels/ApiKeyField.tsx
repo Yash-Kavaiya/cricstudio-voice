@@ -4,18 +4,12 @@ import type { CloudSttProvider } from '../../lib/api';
 import type { StudioClient } from '../../lib/studioClient';
 
 export const KEY_INFO: Record<CloudSttProvider, { label: string; help: string; url: string }> = {
-  gnani: { label: 'Gnani API key', help: 'app.gnani.ai → Voice → API keys', url: 'https://app.gnani.ai/voice/' },
-  google: {
-    label: 'Google Cloud API key',
-    help: 'Cloud Console → Credentials (enable "Cloud Speech-to-Text API")',
-    url: 'https://console.cloud.google.com/apis/library/speech.googleapis.com',
-  },
-  gemini: { label: 'Google AI Studio API key', help: 'aistudio.google.com → Get API key', url: 'https://aistudio.google.com/apikey' },
+  assemblyai: { label: 'AssemblyAI API key', help: 'Optional — the server key is used when none is saved · dashboard → API keys', url: 'https://www.assemblyai.com/dashboard/api-keys' },
 };
 
 /**
- * Write-only API key input. One key per provider per studio, shared by captions (speech-to-text)
- * and the AI commentator. The key is verified, then stored encrypted on the server.
+ * Write-only API key input. One AssemblyAI key per studio powers captions (Universal-Streaming),
+ * the AI commentator (LLM Gateway + TTS) and the voice agent. The key is verified, then stored encrypted on the server.
  */
 export function ApiKeyField({ client, hostToken, provider }: { client: StudioClient; hostToken: string; provider: CloudSttProvider }) {
   const st = client.state!;

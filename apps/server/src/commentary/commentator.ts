@@ -228,7 +228,7 @@ export interface CommentatorHost {
   /** manual Starting Soon countdown (ms epoch) */
   countdownTo(): number | null;
   emit(line: CommentaryLine): void;
-  /** optional AI writer (Gemini): rewrites the template line for this moment; must resolve to the fallback on failure */
+  /** optional AI writer (AssemblyAI LLM Gateway): rewrites the template line for this moment; must resolve to the fallback on failure */
   write?(event: CricketEvent | null, fallback: string, recent: string[]): Promise<{ text: string; ai: boolean; lang?: string }>;
 }
 

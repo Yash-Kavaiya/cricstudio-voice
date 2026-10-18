@@ -1,8 +1,9 @@
-// AI commentary: Gemini (Google AI Studio) writes the line, Gnani Timbre speaks it.
+// AI commentary: AssemblyAI LLM Gateway writes the line, AssemblyAI TTS speaks it.
 // Both are optional — the commentator falls back to templates and free Edge voices.
 import type { CricketEvent, MatchDetail } from '@cricstudio/shared';
 import { minutesToStart } from './commentator';
 import { speakable } from './tts';
+import { llm, speech } from '../assemblyai';
 
 const LANG_NAMES: Record<string, string> = {
   'en-IN': 'Indian English (a little Hinglish flavour is fine)',
@@ -55,7 +56,7 @@ export function eventFacts(ev: CricketEvent | null, d: MatchDetail | null = null
   return parts.filter(Boolean).join(', ') + '.';
 }
 
-export async function geminiCommentary(opts: {
+export async function aaiCommentary(opts: {
   key: string;
   model: string;
   language: string;
@@ -66,78 +67,35 @@ export async function geminiCommentary(opts: {
   timeoutMs?: number;
 }): Promise<string> {
   const lang = LANG_NAMES[opts.language] ?? opts.language;
-  const prompt = [
+  const system = [
     'You are the lead TV commentator on a live cricket broadcast — energetic, knowledgeable, natural, never robotic.',
-    `Write ONE spoken line (max 32 words) in ${lang} for this exact moment.`,
-    'Use ONLY the facts given; never invent scores, names or numbers. No hashtags, emojis, quotes, stage directions or labels.',
-    'Talk ONLY about this match and its two teams. Never mention, compare with or name any other match, fixture, team or score elsewhere.',
+    `Write ONE spoken line (max 32 words) in ${lang} for this exact moment. It is read aloud by a text-to-speech voice.`,
+    'Use ONLY the facts given; never invent scores, names, results or numbers. No hashtags, emojis, quotes, stage directions or labels.',
+    'Talk ONLY about this match and its two teams. Never mention any other match, fixture, team or score elsewhere.',
     'Sound personal and warm: speak to the viewers directly, and when you ask them something, name the teams or players involved.',
-    'Vary your phrasing; do not repeat these recent lines:',
-    ...opts.recent.slice(-5).map((r) => `- ${r}`),
-    '',
+  ].join('\n');
+  const user = [
     'MATCH FACTS:',
     opts.facts,
     '',
     `MOMENT: ${opts.event}`,
-    `(A plain version for reference: "${opts.fallback}")`,
+    `(A plain, correct version for reference: "${opts.fallback}")`,
+    opts.recent.length ? `Do not repeat these recent lines:\n${opts.recent.slice(-5).map((r) => `- ${r}`).join('\n')}` : '',
   ].join('\n');
-  const model = opts.model.replace(/^models\//, '');
-  const send = (fast: boolean) =>
-    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.key },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        // thinking off = fast lines; some models don't accept it, so we retry without
-        generationConfig: { temperature: 0.9, maxOutputTokens: 400, ...(fast ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
-      }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 6000),
-    });
-  let res = await send(true);
-  let j: any = await res.json().catch(() => null);
-  if (res.status === 400 && /think/i.test(j?.error?.message ?? '')) {
-    res = await send(false);
-    j = await res.json().catch(() => null);
-  }
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${j?.error?.message ?? 'request failed'}`);
-  const text = ((j?.candidates?.[0]?.content?.parts ?? []) as any[])
-    .map((p) => p?.text ?? '')
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^["'“”*]+|["'“”*]+$/g, '')
-    .trim();
-  if (!text) throw new Error('Gemini returned no text');
+  const { text } = await llm(opts.key, [{ role: 'system', content: system }, { role: 'user', content: user }], { model: opts.model, maxTokens: 160, temperature: 0.7, timeoutMs: opts.timeoutMs ?? 7000 });
   return text.slice(0, 320);
 }
 
-/** Gnani Timbre v3.0 REST TTS → 24 kHz mono WAV. https://docs.gnani.ai/api/TTS/tts-inference */
-export async function gnaniSpeech(opts: { key: string; text: string; voice: string; language: string; excited?: boolean }): Promise<Buffer> {
-  const res = await fetch('https://api.vachana.ai/api/v1/tts/inference', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-API-Key-ID': opts.key },
-    body: JSON.stringify({
-      text: `${opts.excited ? '<excited> ' : ''}${speakable(opts.text)}`,
-      voice: opts.voice,
-      model: 'timbre-v3.0',
-      language: opts.language.startsWith('en') ? 'en-IN' : opts.language,
-      speed: 1.05,
-      audio_config: { sample_rate: 24000, num_channels: 1, sample_width: 2, encoding: 'linear_pcm', container: 'wav' },
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    let msg = t.slice(0, 160);
-    try {
-      const j = JSON.parse(t);
-      const d = typeof j?.detail === 'object' ? j.detail : j;
-      msg = d?.message ?? (typeof j?.detail === 'string' ? j.detail : msg);
-    } catch {
-      /* not JSON */
-    }
-    throw new Error(`Gnani TTS ${res.status}: ${msg}`);
-  }
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length < 100) throw new Error('Gnani TTS returned no audio');
-  return buf;
+/** AssemblyAI TTS (Voice Agent API voices) → 24 kHz mono WAV. */
+export async function aaiSpeech(opts: { key: string; text: string; voice: string; excited?: boolean }): Promise<Buffer> {
+  return speech(opts.key, speakable(opts.text), opts.voice, { excited: opts.excited });
+}
+
+/** 45-60 word studio recap of the match so far, written by LLM Gateway. */
+export async function aaiRecap(opts: { key: string; model: string; facts: string; recent: string[] }): Promise<string> {
+  const { text } = await llm(opts.key, [
+    { role: 'system', content: 'You are a cricket studio presenter. Give a 45-70 word spoken recap: where the match stands, momentum, key moments and what to watch next. Plain spoken English for text-to-speech, no lists, no emojis. Use only the facts given.' },
+    { role: 'user', content: `${opts.facts}\nRecent commentary:\n${opts.recent.slice(-12).join('\n')}` },
+  ], { model: opts.model, maxTokens: 260, temperature: 0.6, timeoutMs: 12000 });
+  return text;
 }

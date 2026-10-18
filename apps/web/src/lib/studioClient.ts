@@ -19,7 +19,7 @@ import type {
 } from '@cricstudio/shared';
 import { AudioEngine } from '../audio/engine';
 import { LiveCaptions, speechSupported } from '../captions/speech';
-import { SpeechSegmenter } from '../captions/segmenter';
+import { AssemblyAIStreaming } from '../captions/aaiStreaming';
 import { ProgramRecorder } from '../compositor/recorder';
 import { HwProgramRecorder, hardwareEncodingSupported } from '../compositor/hwRecorder';
 import { ProgramRenderer } from '../compositor/renderer';
@@ -117,14 +117,17 @@ export class StudioClient {
   private speechBusy = false;
   commentary: CommentaryLine | null = null;
   private captions: LiveCaptions | null = null;
-  private segmenter: SpeechSegmenter | null = null;
+  private segmenter: AssemblyAIStreaming | null = null;
+  /** hands-free producer: captions starting with the wake word are run as studio commands */
+  voiceCommands = false;
+  lastCommand: { text: string; result: string; ts: number } | null = null;
   private sttChain: Promise<void> = Promise.resolve();
   private sttPending = 0;
   private cloudFails = 0;
   private cloudFallbackUntil = 0;
   private captionRetry: ReturnType<typeof setTimeout> | null = null;
   /** what is producing your captions right now (shown in the UI) */
-  captionStatus: { engine: 'off' | 'browser' | 'gnani' | 'google' | 'gemini'; fallback: boolean; error?: string; lastText?: string } = { engine: 'off', fallback: false };
+  captionStatus: { engine: 'off' | 'browser' | 'assemblyai'; fallback: boolean; error?: string; lastText?: string } = { engine: 'off', fallback: false };
   private remoteAudio = new Map<string, HTMLAudioElement>();
   private listeners = new Set<Listener>();
   private matchesTimer: number | null = null;
@@ -156,6 +159,10 @@ export class StudioClient {
   subscribe(l: Listener) {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
+  }
+
+  notifyAll() {
+    this.notify();
   }
 
   private notify() {
@@ -608,9 +615,9 @@ export class StudioClient {
   }
 
   /**
-   * Live captions. Cloud engines (Gnani / Google Cloud / Google AI Studio) get phrases cut from the
-   * processed mic; when they're unavailable or failing we fall back to the browser's free
-   * Web Speech recognition (Chrome/Edge) and retry the cloud engine a minute later.
+   * Live captions. AssemblyAI Universal-Streaming gets the processed mic over a realtime WebSocket
+   * (temporary token from the studio server); when it's unavailable or failing we fall back to the
+   * browser's free Web Speech recognition (Chrome/Edge) and retry AssemblyAI a minute later.
    */
   private updateCaptions() {
     const st = this.state;
@@ -635,7 +642,17 @@ export class StudioClient {
       this.captions.start();
     }
     if (mode === 'cloud' && !this.segmenter) {
-      this.segmenter = new SpeechSegmenter((wav) => this.sendPhrase(wav));
+      this.segmenter = new AssemblyAIStreaming({
+        language: stt?.language,
+        getToken: async () => {
+          const r = await this.socket.timeout(10_000).emitWithAck('stt:token', {});
+          if (!r?.ok) throw new Error(r?.error ?? 'No streaming token');
+          return r.token as string;
+        },
+        keyterms: () => this.keyterms(),
+        onText: (text, final) => this.onStreamText(text, final),
+        onError: (msg) => this.cloudFailed(msg),
+      });
       if (this.localStream) void this.segmenter.start(this.localStream);
     }
     const prevErr = this.captionStatus.error;
@@ -643,9 +660,60 @@ export class StudioClient {
       mode === 'off'
         ? { engine: 'off', fallback: false }
         : mode === 'cloud'
-          ? { engine: stt!.provider as 'gnani' | 'google' | 'gemini', fallback: false, lastText: this.captionStatus.lastText }
+          ? { engine: 'assemblyai', fallback: false, lastText: this.captionStatus.lastText }
           : { engine: 'browser', fallback, error: fallback ? prevErr : speechSupported() ? undefined : 'This browser has no built-in speech recognition — use Chrome/Edge or add a cloud API key.' };
     this.notify();
+  }
+
+  /** player + team names to boost in Universal-Streaming */
+  keyterms(): string[] {
+    const m = this.match;
+    const names = new Set<string>();
+    for (const t of m?.teams ?? []) {
+      if (t.name) names.add(t.name);
+      for (const p of t.squad ?? []) if (p.name) names.add(p.name);
+    }
+    for (const b of m?.currentBatters ?? []) names.add(b.name);
+    if (m?.currentBowler) names.add(m.currentBowler.name);
+    return [...names, 'wicket', 'boundary', 'LBW', 'yorker', 'powerplay', 'run rate', 'DRS'].slice(0, 100);
+  }
+
+  private onStreamText(text: string, final: boolean) {
+    if (this.isMicMuted() || !this.self?.onStage) return;
+    const wake = /^\s*(hey\s+)?(studio|producer)[,.!]?\s+/i;
+    if (this.voiceCommands && this.isHost && wake.test(text)) {
+      if (final) void this.voiceCommand(text.replace(wake, ''));
+      return; // commands are not captioned
+    }
+    this.socket.emit('captions:text', { text, final });
+    this.cloudFails = 0;
+    if (final) {
+      this.captionStatus = { engine: 'assemblyai', fallback: false, lastText: text };
+      this.notify();
+    }
+  }
+
+  /** Host: run a spoken/typed command through AssemblyAI LLM Gateway ("show the batting card"). */
+  async voiceCommand(text: string) {
+    const r = await this.socket.timeout(20_000).emitWithAck('voice:command', { text }).catch((e: Error) => ({ ok: false, error: e.message }));
+    const result = r?.ok ? (r.action === 'scene' ? `Switched to ${r.scene}` : r.action === 'recap' ? 'Recap on air' : r.action === 'say' ? `Said: ${r.say}` : 'No action') : `Failed: ${r?.error}`;
+    this.lastCommand = { text, result, ts: Date.now() };
+    this.notify();
+    return r;
+  }
+
+  /** Host: LLM Gateway recap of the match so far, read on air. */
+  recap(): Promise<{ ok: boolean; text?: string; error?: string }> {
+    return this.socket.timeout(30_000).emitWithAck('ai:recap', {});
+  }
+
+  /** Voice Agent session (token + match context) for talk-to-commentator. */
+  agentSession(): Promise<{ ok: boolean; token?: string; voice?: string; context?: string; keyterms?: string[]; error?: string }> {
+    return this.socket.timeout(15_000).emitWithAck('agent:session', {}).catch((e: Error) => ({ ok: false, error: e.message }));
+  }
+
+  agentContext(): Promise<string> {
+    return this.socket.timeout(8_000).emitWithAck('agent:context', {}).then((r: any) => r?.context ?? '').catch(() => '');
   }
 
   private sendPhrase(wav: ArrayBuffer) {
@@ -894,8 +962,8 @@ export class StudioClient {
         this.notify();
         try {
           let audio: ArrayBuffer | null = null;
-          if (line.engine === 'gnani') {
-            // Gnani voice is synthesised by the studio server with your key; fall back to Edge on any failure
+          if (line.engine === 'assemblyai') {
+            // AssemblyAI voice is synthesised by the studio server; fall back to Edge on any failure
             const r = await this.socket.timeout(15_000).emitWithAck('commentary:tts', { id: line.id }).catch(() => null);
             if (r?.ok && r.audio) audio = r.audio as ArrayBuffer;
           }
@@ -928,19 +996,19 @@ export class StudioClient {
   }
 
   /** Host: save speech/AI settings or keys (null clears a key). Keys are write-only. */
-  saveStt(body: { provider?: SttProvider; language?: string; geminiModel?: string; keys?: Partial<Record<'gnani' | 'google' | 'gemini', string | null>> }) {
+  saveStt(body: { provider?: SttProvider; language?: string; llmModel?: string; keys?: Partial<Record<'assemblyai', string | null>> }) {
     return this.emit('stt:save', body).then((r: any) => r.stt as SttSettings);
   }
 
   /** Host: verify a key (the saved one when `key` is omitted). */
-  testStt(provider: 'gnani' | 'google' | 'gemini', key?: string): Promise<{ ok: boolean; error?: string; ms: number }> {
+  testStt(provider: 'assemblyai', key?: string): Promise<{ ok: boolean; error?: string; ms: number }> {
     return this.socket
       .timeout(25_000)
       .emitWithAck('stt:test', { provider, key })
       .catch((e: Error) => ({ ok: false, error: e.message, ms: 0 }));
   }
 
-  /** Host: try the AI commentary setup with a sample line (returns Gnani audio when the voice works). */
+  /** Host: try the AI commentary setup with a sample line (returns AssemblyAI audio when the voice works). */
   testCommentary(): Promise<{ ok: boolean; text: string; ai: boolean; writerError?: string; voiceOk?: boolean; voiceError?: string; audio?: ArrayBuffer; error?: string }> {
     return this.socket.timeout(30_000).emitWithAck('commentary:test', {}).catch((e: Error) => ({ ok: false, text: '', ai: false, error: e.message }));
   }

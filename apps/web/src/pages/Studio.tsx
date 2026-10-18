@@ -33,6 +33,7 @@ import { SceneRail } from '../components/SceneRail';
 import { VideoTile } from '../components/VideoTile';
 import { AudioPanel } from '../components/panels/AudioPanel';
 import { AutopilotPanel } from '../components/panels/AutopilotPanel';
+import { VoiceAiPanel } from '../components/panels/VoiceAiPanel';
 import { AutomationPanel } from '../components/panels/AutomationPanel';
 import { BrandPanel } from '../components/panels/BrandPanel';
 import { ChatPanel } from '../components/panels/ChatPanel';
@@ -84,6 +85,7 @@ function useLiveTimer(startedAt?: number) {
 const TABS = [
   { key: 'match', icon: 'sports_cricket', label: 'Match' },
   { key: 'pilot', icon: 'smart_toy', label: 'Auto Live' },
+  { key: 'voice', icon: 'graphic_eq', label: 'Voice AI' },
   { key: 'auto', icon: 'auto_awesome', label: 'Director' },
   { key: 'audio', icon: 'music_note', label: 'Audio' },
   { key: 'stream', icon: 'cell_tower', label: 'Stream' },
@@ -308,6 +310,7 @@ function StudioRoom({ client: c, hostToken, programToken, onLeave }: { client: S
           <Box sx={{ p: 2, overflow: 'auto', flex: 1 }}>
             {tab === 'match' && <MatchPanel client={client} />}
             {tab === 'pilot' && <AutopilotPanel client={client} hostToken={hostToken} hasDestinations={dests.list.some((d) => d.enabled)} onGoCloud={() => void guards(client.goLive('cloud'))} />}
+            {tab === 'voice' && <VoiceAiPanel client={client} />}
             {tab === 'auto' && <AutomationPanel client={client} />}
             {tab === 'audio' && <AudioPanel client={client} hostToken={hostToken} />}
             {tab === 'stream' && <DestinationsPanel client={client} hostToken={hostToken} dests={dests} />}

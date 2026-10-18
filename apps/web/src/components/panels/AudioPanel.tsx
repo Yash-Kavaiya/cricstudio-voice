@@ -43,7 +43,7 @@ export function AudioPanel({ client, hostToken }: { client: StudioClient; hostTo
     return (
       <ListItemButton key={id} selected={on} onClick={() => play(id)} sx={{ borderRadius: 2 }}>
         <ListItemIcon sx={{ minWidth: 36 }}>
-          <Icon name={on ? 'pause_circle' : icon} fill={on} color={on ? '#1a73e8' : undefined} />
+          <Icon name={on ? 'pause_circle' : icon} fill={on} color={on ? '#3923c7' : undefined} />
         </ListItemIcon>
         <ListItemText primary={title} secondary={sub} />
         {on && <Chip size="small" label="On air" color="primary" />}

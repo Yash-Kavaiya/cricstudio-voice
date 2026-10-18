@@ -355,37 +355,41 @@ export interface AutopilotSettings {
   autoMatch: boolean;
   /** headless cloud worker renders + streams (no browser needed) */
   cloud: boolean;
-  /** who writes the commentary: built-in templates (free) or Gemini via Google AI Studio */
+  /** who writes the commentary: built-in templates (free) or AssemblyAI LLM Gateway */
   writer?: CommentaryWriter;
-  /** who speaks it: free Edge neural voices or Gnani Timbre */
+  /** who speaks it: AssemblyAI voices (Voice Agent API TTS) or free Edge neural voices as fallback */
   voiceEngine?: CommentaryVoiceEngine;
-  /** Gnani Timbre v3.0 voice id */
-  gnaniVoice?: string;
+  /** AssemblyAI voice id (see AAI_VOICES) */
+  aaiVoice?: string;
+  /** LLM Gateway model id for commentary, recaps and translation */
+  llmModel?: string;
   /** language the commentary is written and spoken in (BCP-47) */
   commentaryLanguage?: string;
 }
 
-export type CommentaryWriter = 'templates' | 'gemini';
-export type CommentaryVoiceEngine = 'edge' | 'gnani';
+export type CommentaryWriter = 'templates' | 'assemblyai';
+export type CommentaryVoiceEngine = 'edge' | 'assemblyai';
 
-/** Gnani Timbre v3.0 voices — every voice speaks all 10 Indian languages. */
-export const GNANI_VOICES: { id: string; label: string }[] = [
-  { id: 'Shubham', label: 'Shubham · male, energetic' },
-  { id: 'Devansh', label: 'Devansh · male, young & lively' },
-  { id: 'Yashraj', label: 'Yashraj · male, warm narrator' },
-  { id: 'Avinash', label: 'Avinash · male, firm' },
-  { id: 'Prakash', label: 'Prakash · male, steady' },
-  { id: 'Harshad', label: 'Harshad · male, professional' },
-  { id: 'Lakshmi', label: 'Lakshmi · female, expressive' },
-  { id: 'Vasudha', label: 'Vasudha · female, expressive' },
-  { id: 'Riyaa', label: 'Riyaa · female, confident' },
-  { id: 'Shivani', label: 'Shivani · female, warm' },
-  { id: 'Kalpana', label: 'Kalpana · female, composed' },
-  { id: 'Chetana', label: 'Chetana · female, gentle' },
-  { id: 'Tarika', label: 'Tarika · female, reassuring' },
+/** AssemblyAI Voice Agent API voices (https://www.assemblyai.com/docs/voice-agents/voice-agent-api/voices). */
+export const AAI_VOICES: { id: string; label: string }[] = [
+  { id: 'charles', label: 'Charles · British male, broadcast' },
+  { id: 'paul', label: 'Paul · British male' },
+  { id: 'anna', label: 'Anna · British female' },
+  { id: 'vera', label: 'Vera · British female' },
+  { id: 'michael', label: 'Michael · American male' },
+  { id: 'george', label: 'George · American male' },
+  { id: 'jean', label: 'Jean · American' },
+  { id: 'alba', label: 'Alba · American female' },
+  { id: 'jane', label: 'Jane · American female' },
+  { id: 'eve', label: 'Eve · American female' },
+  { id: 'mary', label: 'Mary · American female' },
 ];
 
-/** Free Edge neural voices used when commentary is in an Indian language (fallback for Gnani). */
+/** LLM Gateway models offered in the UI (any id your account can use also works). */
+export const LLM_MODELS: string[] = ['qwen3.5-4b-32k-fast', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'gpt-5-mini', 'gpt-5.1', 'kimi-k3'];
+export const DEFAULT_LLM_MODEL = 'qwen3.5-4b-32k-fast';
+
+/** Free Edge neural voices used when commentary is in an Indian language (AssemblyAI voices are English). */
 export const EDGE_LANG_VOICES: Record<string, string> = {
   'hi-IN': 'hi-IN-MadhurNeural',
   'bn-IN': 'bn-IN-BashkarNeural',
@@ -397,16 +401,16 @@ export const EDGE_LANG_VOICES: Record<string, string> = {
   'te-IN': 'te-IN-MohanNeural',
 };
 
-/** Live-caption speech-to-text engine. `browser` = free Web Speech API (Chrome/Edge), used as fallback. */
-export type SttProvider = 'browser' | 'gnani' | 'google' | 'gemini';
+/** Live-caption speech-to-text engine. `assemblyai` = Universal-Streaming realtime STT; `browser` = Web Speech fallback. */
+export type SttProvider = 'browser' | 'assemblyai';
 
 export interface SttSettings {
   provider: SttProvider;
   /** BCP-47 language, e.g. en-IN, hi-IN */
   language: string;
-  /** Google AI Studio model id for the gemini provider */
-  geminiModel: string;
-  /** which API keys are saved on the server (keys themselves are never sent to browsers) */
+  /** LLM Gateway model id (commentary writer, recaps, translation) */
+  llmModel: string;
+  /** whether an AssemblyAI key is available on the server (keys themselves are never sent to browsers) */
   configured: Record<Exclude<SttProvider, 'browser'>, boolean>;
 }
 
@@ -433,17 +437,17 @@ export interface CommentaryLine {
   voice: string;
   priority: number;
   ts: number;
-  /** speak with Gnani via the studio socket ('commentary:tts'); falls back to `voice` */
+  /** speak with AssemblyAI via the studio socket ('commentary:tts'); falls back to `voice` */
   engine?: CommentaryVoiceEngine;
   lang?: string;
-  /** written by Gemini (true) or a template */
+  /** written by AssemblyAI LLM Gateway (true) or a template */
   ai?: boolean;
 }
 
 /** live health of the AI commentary engines (not persisted) */
 export interface AiCommentaryStatus {
-  writer: 'templates' | 'gemini' | 'fallback';
-  voice: 'edge' | 'gnani' | 'fallback';
+  writer: 'templates' | 'assemblyai' | 'fallback';
+  voice: 'edge' | 'assemblyai' | 'fallback';
   error?: string;
 }
 
@@ -492,7 +496,7 @@ export interface StudioState {
   autopilot: AutopilotSettings;
   /** live-caption speech-to-text engine */
   stt: SttSettings;
-  /** live status of Gemini / Gnani commentary (runtime only) */
+  /** live status of AssemblyAI commentary (runtime only) */
   aiStatus?: AiCommentaryStatus;
   /** transition for the current cut, chosen by the server so every renderer matches */
   transition: TransitionId;

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Alert, Box, Button, CircularProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import { EDGE_LANG_VOICES, GNANI_VOICES, STT_LANGUAGES, VOICES, type AutopilotSettings } from '@cricstudio/shared';
+import { Alert, Box, Button, Chip, CircularProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { AAI_VOICES, DEFAULT_LLM_MODEL, EDGE_LANG_VOICES, LLM_MODELS, STT_LANGUAGES, VOICES, type AutopilotSettings } from '@cricstudio/shared';
 import type { StudioClient } from '../../lib/studioClient';
+import { AAI } from '../../theme';
 import { Icon } from '../Icon';
 import { ApiKeyField } from './ApiKeyField';
 
-/** Where the AI commentator gets its words (templates / Gemini) and its voice (Edge / Gnani). */
+/** Where the AI commentator gets its words (templates / AssemblyAI LLM Gateway) and its voice (AssemblyAI TTS / Edge fallback). */
 export function AiCommentarySettings({ client, hostToken }: { client: StudioClient; hostToken: string }) {
   const st = client.state!;
   const ap = st.autopilot;
@@ -13,8 +14,9 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
   const engine = ap.voiceEngine ?? 'edge';
   const lang = ap.commentaryLanguage ?? 'en-IN';
   const status = st.aiStatus;
-  const [model, setModel] = useState(st.stt.geminiModel);
   const [testing, setTesting] = useState(false);
+  const [recapping, setRecapping] = useState(false);
+  const [recap, setRecap] = useState<string | null>(null);
   const [test, setTest] = useState<Awaited<ReturnType<StudioClient['testCommentary']>> | null>(null);
   const patch = (p: Partial<AutopilotSettings>) => void client.patch({ autopilot: { ...ap, ...p } });
 
@@ -24,7 +26,6 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
     const r = await client.testCommentary();
     setTest(r);
     setTesting(false);
-    // preview locally only (not on air)
     if (r.audio) {
       const url = URL.createObjectURL(new Blob([r.audio], { type: 'audio/wav' }));
       const a = new Audio(url);
@@ -33,21 +34,29 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
     }
   };
 
+  const runRecap = async () => {
+    setRecapping(true);
+    const r = await client.recap().catch((e: Error) => ({ ok: false, error: e.message, text: undefined }));
+    setRecap(r.ok ? r.text ?? '' : `Recap failed: ${r.error}`);
+    setRecapping(false);
+  };
+
   const fellBack = status && (status.writer === 'fallback' || status.voice === 'fallback');
 
   return (
-    <Box sx={{ mt: 1.5, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1.5 }}>
+    <Box sx={{ mt: 1.5, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Icon name="auto_awesome" color="#1a73e8" />
+          <Icon name="graphic_eq" color={AAI.cobalt} />
           <Typography variant="subtitle2" sx={{ flex: 1 }}>
-            AI commentary engine
+            AI commentary · AssemblyAI
           </Typography>
+          <Chip size="small" variant="outlined" label={st.stt.configured.assemblyai ? 'Key ready' : 'No key'} color={st.stt.configured.assemblyai ? 'success' : 'default'} sx={{ height: 20 }} />
         </Stack>
 
         {fellBack && (
           <Alert severity="warning" sx={{ py: 0 }}>
-            Using the free fallback ({status!.writer === 'fallback' ? 'templates' : 'Gemini'} · {status!.voice === 'fallback' ? 'Edge voice' : 'Gnani'}).
+            Using the free fallback ({status!.writer === 'fallback' ? 'templates' : 'LLM Gateway'} · {status!.voice === 'fallback' ? 'Edge voice' : 'AssemblyAI voice'}).
             {status!.error && (
               <Typography variant="caption" component="div">
                 {status!.error}
@@ -63,14 +72,9 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
             </MenuItem>
           ))}
         </TextField>
-        {!lang.startsWith('en') && writer === 'templates' && (
+        {!lang.startsWith('en') && (
           <Typography variant="caption" color="text.secondary">
-            Template lines are translated automatically (free) and spoken in a native voice. Gemini writes them natively for a more natural feel.
-          </Typography>
-        )}
-        {!lang.startsWith('en') && !EDGE_LANG_VOICES[lang] && engine !== 'gnani' && (
-          <Typography variant="caption" color="warning.main">
-            Edge has no voice for this language, so the commentary is spoken in Hindi. Choose the Gnani voice to hear it in this language.
+            LLM Gateway writes (or translates) the lines in this language. AssemblyAI voices speak English, so {EDGE_LANG_VOICES[lang] ? 'a native Edge voice' : 'a Hindi Edge voice'} reads non-English lines.
           </Typography>
         )}
 
@@ -79,23 +83,22 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
             Who writes the lines
           </Typography>
           <ToggleButtonGroup exclusive fullWidth size="small" value={writer} onChange={(_, v) => v && patch({ writer: v })}>
-            <ToggleButton value="templates">Templates · free</ToggleButton>
-            <ToggleButton value="gemini">Gemini AI</ToggleButton>
+            <ToggleButton value="assemblyai">LLM Gateway</ToggleButton>
+            <ToggleButton value="templates">Templates · offline</ToggleButton>
           </ToggleButtonGroup>
         </Box>
-        {writer === 'gemini' && (
+        {writer === 'assemblyai' && (
           <Stack spacing={1}>
             <Typography variant="caption" color="text.secondary">
-              Gemini reads the live scorecard and writes a fresh line for every boundary, wicket, milestone and quiet spell — in your language, without inventing numbers.
+              AssemblyAI LLM Gateway reads the live scorecard and writes a fresh line for every boundary, wicket, milestone and quiet spell — grounded in the facts, never inventing numbers.
             </Typography>
-            <TextField
-              label="Gemini model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              onBlur={() => model !== st.stt.geminiModel && void client.saveStt({ geminiModel: model })}
-              helperText="Shared with Gemini captions, e.g. gemini-2.5-flash"
-            />
-            <ApiKeyField client={client} hostToken={hostToken} provider="gemini" />
+            <TextField select label="LLM Gateway model" value={ap.llmModel ?? st.stt.llmModel ?? DEFAULT_LLM_MODEL} onChange={(e) => patch({ llmModel: e.target.value })} helperText="Falls back to qwen3.5-4b-32k-fast if your plan lacks the model">
+              {LLM_MODELS.map((m) => (
+                <MenuItem key={m} value={m}>
+                  {m}
+                </MenuItem>
+              ))}
+            </TextField>
           </Stack>
         )}
 
@@ -104,28 +107,20 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
             Who speaks them
           </Typography>
           <ToggleButtonGroup exclusive fullWidth size="small" value={engine} onChange={(_, v) => v && patch({ voiceEngine: v })}>
-            <ToggleButton value="edge">Edge voices · free</ToggleButton>
-            <ToggleButton value="gnani">Gnani voice</ToggleButton>
+            <ToggleButton value="assemblyai">AssemblyAI voice</ToggleButton>
+            <ToggleButton value="edge">Edge · offline fallback</ToggleButton>
           </ToggleButtonGroup>
         </Box>
-        {engine === 'gnani' && (
-          <Stack spacing={1}>
-            <TextField select label="Gnani voice (speaks all 10 Indian languages)" value={ap.gnaniVoice ?? 'Shubham'} onChange={(e) => patch({ gnaniVoice: e.target.value })}>
-              {GNANI_VOICES.map((v) => (
-                <MenuItem key={v.id} value={v.id}>
-                  {v.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <ApiKeyField client={client} hostToken={hostToken} provider="gnani" />
-          </Stack>
+        {engine === 'assemblyai' && (
+          <TextField select label="AssemblyAI voice" value={ap.aaiVoice ?? 'charles'} onChange={(e) => patch({ aaiVoice: e.target.value })}>
+            {AAI_VOICES.map((v) => (
+              <MenuItem key={v.id} value={v.id}>
+                {v.label}
+              </MenuItem>
+            ))}
+          </TextField>
         )}
-        <TextField
-          select
-          label={engine === 'gnani' ? 'Edge fallback voice (English)' : 'Edge voice (English)'}
-          value={ap.voice}
-          onChange={(e) => patch({ voice: e.target.value })}
-        >
+        <TextField select label={engine === 'assemblyai' ? 'Fallback voice (Edge)' : 'Edge voice (English)'} value={ap.voice} onChange={(e) => patch({ voice: e.target.value })}>
           {VOICES.map((v) => (
             <MenuItem key={v.id} value={v.id}>
               {v.label}
@@ -133,13 +128,15 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
           ))}
         </TextField>
 
-        <Stack direction="row" spacing={1} alignItems="center">
+        <ApiKeyField client={client} hostToken={hostToken} provider="assemblyai" />
+
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Button variant="outlined" startIcon={testing ? <CircularProgress size={16} /> : <Icon name="play_circle" />} disabled={testing} onClick={() => void runTest()}>
             Test commentary
           </Button>
-          <Typography variant="caption" color="text.secondary">
-            Plays here only — not on air
-          </Typography>
+          <Button variant="outlined" startIcon={recapping ? <CircularProgress size={16} /> : <Icon name="summarize" />} disabled={recapping} onClick={() => void runRecap()}>
+            Studio recap (on air)
+          </Button>
         </Stack>
         {test && (
           <Alert severity={test.writerError || test.voiceError || test.error ? 'warning' : 'success'}>
@@ -148,14 +145,15 @@ export function AiCommentarySettings({ client, hostToken }: { client: StudioClie
               {test.error
                 ? test.error
                 : [
-                    writer === 'gemini' ? (test.ai ? 'Written by Gemini ✓' : `Gemini failed: ${test.writerError}`) : 'Template line',
-                    engine === 'gnani' ? (test.voiceOk ? 'Gnani voice ✓' : `Gnani failed: ${test.voiceError}`) : 'Edge voice on air',
+                    writer === 'assemblyai' ? (test.ai ? 'Written by LLM Gateway ✓' : `LLM Gateway failed: ${test.writerError}`) : 'Template line',
+                    engine === 'assemblyai' ? (test.voiceOk ? 'AssemblyAI voice ✓' : `AssemblyAI voice failed: ${test.voiceError}`) : 'Edge voice on air',
                   ].join(' · ')}
             </Typography>
           </Alert>
         )}
+        {recap && <Alert severity={recap.startsWith('Recap failed') ? 'error' : 'info'}>{recap}</Alert>}
         <Typography variant="caption" color="text.secondary">
-          If Gemini or Gnani fails, the commentator instantly falls back to templates and the free Edge voice — it never goes silent.
+          If AssemblyAI is unreachable the commentator instantly falls back to templates and an offline voice — it never goes silent.
         </Typography>
       </Stack>
     </Box>

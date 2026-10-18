@@ -5,6 +5,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { PLATFORM_PRESETS, type DestinationPublic, type Platform, type StudioCreateResponse, type SttProvider } from '@cricstudio/shared';
 import { CLOUD_STT, type CloudStt } from './stt/providers';
 import { config } from './config';
+import { envKey, speech } from './assemblyai';
+import { AAI_VOICES } from '@cricstudio/shared';
 import { DEMO_KEY } from './espn/demo';
 import type { MatchHub } from './espn/hub';
 import { decrypt, encrypt, hashToken, maskKey, newId, newToken, tokenMatches } from './store/crypto';
@@ -36,6 +38,27 @@ export function registerHttp(app: FastifyInstance, hub: MatchHub, repo: Repo, st
     }
     return studio;
   };
+
+  /* ---------------- AssemblyAI (server key) ---------------- */
+  app.get('/api/assemblyai/status', async () => ({ configured: !!envKey(), products: ['voice-agent-tts', 'universal-streaming', 'async-stt', 'llm-gateway'] }));
+  // AssemblyAI text-to-speech as WAV — e.g. curl "/api/aai/tts?text=What%20a%20finish&voice=charles" -o a.wav
+  const aaiHits = new Map<string, number[]>();
+  app.get<{ Querystring: { text?: string; voice?: string } }>('/api/aai/tts', async (req, reply) => {
+    const key = envKey();
+    if (!key) return reply.code(503).send({ error: 'ASSEMBLYAI_API_KEY is not configured' });
+    const now = Date.now();
+    const hits = (aaiHits.get(req.ip) ?? []).filter((t) => now - t < 60_000);
+    if (hits.length >= 10) return reply.code(429).send({ error: 'Slow down — 10 requests per minute' });
+    aaiHits.set(req.ip, [...hits, now]);
+    const text = String(req.query.text || 'Welcome to CricStudio Voice — live cricket, called by AssemblyAI.').slice(0, 400);
+    const voice = AAI_VOICES.some((v) => v.id === req.query.voice) ? req.query.voice! : 'charles';
+    try {
+      const wav = await speech(key, text, voice);
+      return reply.header('content-type', 'audio/wav').header('cache-control', 'no-store').send(wav);
+    } catch (e) {
+      return reply.code(502).send({ error: (e as Error).message });
+    }
+  });
 
   app.get('/api/health', async () => ({
     ok: true,
@@ -171,7 +194,7 @@ export function registerHttp(app: FastifyInstance, hub: MatchHub, repo: Repo, st
   /* ---------------- speech-to-text settings (live captions) ---------------- */
 
   // Keys are write-only: saved encrypted on the server, the browser only learns whether one is set.
-  app.put<{ Params: { id: string }; Body: { provider?: SttProvider; language?: string; geminiModel?: string; keys?: Partial<Record<CloudStt, string | null>> } }>(
+  app.put<{ Params: { id: string }; Body: { provider?: SttProvider; language?: string; llmModel?: string; keys?: Partial<Record<CloudStt, string | null>> } }>(
     '/api/studios/:id/stt',
     async (req, reply) => {
       await hostGuard(req);

@@ -1,16 +1,67 @@
-# CricStudio 🏏 — a StreamYard-style live studio built only for cricket
+# CricStudio Voice 🏏🎙️ — a live cricket broadcast studio, voiced end-to-end by AssemblyAI
 
-Go live to **YouTube, Facebook, X and Twitch at the same time**, with:
+**Built for AssemblyAI's _Voice Hackathon: Hack into speech_ (Oct 2026).**
 
-- **1 host + up to 4 expert guests** over WebRTC.
-- **Real live scores for every match**, from ESPN's free endpoints.
-- **40 broadcast scenes** that switch themselves as the match unfolds, with **3D celebrations**, 11 animated background templates, 10 transitions, cricket sound effects and royalty-free music.
-- **Auto Live mode**: a host-free show with rotating scenes, auto music and a human-sounding **AI commentator**.
-- **24/7 cloud mode**: a headless producer on the server streams nonstop, survives crashes and restarts, and keeps memory flat.
+CricStudio Voice is the full [CricStudio](https://github.com/Yash-Kavaiya/cricstudio) broadcast studio — 40 scenes, compositor, overlays, autopilot, multistreaming to YouTube/Facebook/X/Twitch — rebuilt around **AssemblyAI** as its only voice and language stack. Every previous third-party AI integration (the old speech-to-text, TTS and LLM providers) has been removed and replaced with AssemblyAI products.
 
-![flow](https://img.shields.io/badge/WebRTC-mesh%20%7C%20LiveKit-1a73e8) ![ffmpeg](https://img.shields.io/badge/FFmpeg-tee%20multistream-34a853) ![ui](https://img.shields.io/badge/UI-Material%203-fbbc04)
+**Live:** https://cricstudio-voice.vercel.app
+
+![Home](docs/home.png)
+
+## The problem
+
+Thousands of cricket matches every week — domestic first-class, women's leagues, associate nations — have a ball-by-ball feed but **no commentary, no captions and no broadcast**. Fans follow a silent scorecard, and blind or low-vision fans get nothing. CricStudio Voice turns any live match into a captioned, commentated show that you can **talk back to**.
+
+## What AssemblyAI powers
+
+| Feature | AssemblyAI product | Replaces | Code |
+| --- | --- | --- | --- |
+| **AI commentator voice** for every boundary, wicket, milestone and quiet spell — mixed into the broadcast | **Voice Agent API voices (TTS)**, 11 voices, word-for-word delivery | the old TTS provider | `apps/server/src/assemblyai/index.ts` → `speech()` |
+| **Commentary writer** grounded in the live scorecard (in 13 languages) | **LLM Gateway** (`/v1/chat/completions`, model fallback) | the old LLM provider | `commentary/ai.ts` → `aaiCommentary()` |
+| **Talk to the commentator** — hold to ask, the agent calls a `get_match_state` tool and answers out loud; barge-in supported | **Voice Agent API** (streaming STT + LLM + TTS, tool calling, single-use tokens) | — (new) | `apps/web/src/lib/voiceAgent.ts`, `VoiceAiPanel.tsx` |
+| **Realtime live captions** for host + guests, burned into the stream, player names boosted | **Universal-Streaming v3** (`universal-streaming-english` / `-multilingual`, `keyterms_prompt`, formatted turns) | the old cloud STT providers | `apps/web/src/captions/aaiStreaming.ts` |
+| **Hands-free producer** — say “Studio, show the batting card” / “Studio, give me a recap” | **Universal-Streaming** + **LLM Gateway** intent parsing | — (new) | `room.voiceCommand()` |
+| **Studio recaps** read on air | **LLM Gateway** + **TTS** | — (new) | `room.recap()` |
+| Translation of template lines into Hindi, Tamil, Bengali… | **LLM Gateway** | a free web translation endpoint | `commentary/translate.ts` |
+| Key check / phrase transcription | **Async STT** (`/v2/upload` + `/v2/transcript`, Universal-3.5 Pro → Universal-2 fallback, keyterms) | the old cloud STT providers | `assemblyai/index.ts` → `transcribe()` |
+
+The API key never reaches a browser: realtime captions and the voice agent use short-lived single-use tokens minted by the studio server. A studio can save its own AssemblyAI key (encrypted at rest), otherwise the server's `ASSEMBLYAI_API_KEY` is used. If AssemblyAI is unreachable the commentator falls back to templates and an offline voice, and captions fall back to browser speech — **the show never goes silent**.
+
+![Voice AI control room](docs/studio-voice-ai.png)
+
+## What's new on top of CricStudio
+
+- **Voice AI tab** in the studio — talk-to-commentator, hands-free producer, recaps and a live status of every AssemblyAI product.
+- **AssemblyAI-inspired UI** — warm paper background, ink text, cobalt accent, mono labels, pill buttons; a new **“AssemblyAI · Paper”** broadcast theme with a live voice-waveform background (default for new studios).
+- **Latency readout** (question → first audio) in the talk-to-commentator panel.
+- **`GET /api/aai/tts?text=…&voice=charles`** — AssemblyAI TTS as WAV (rate-limited), used by the landing page's *Hear the commentator* button.
+- `GET /api/assemblyai/status` — whether the server key is configured.
+- Older studios' AI settings are migrated to AssemblyAI automatically.
+
+## Quick start
+
+```bash
+git clone https://github.com/Yash-Kavaiya/cricstudio-voice && cd cricstudio-voice
+cp .env.example .env            # set ASSEMBLYAI_API_KEY
+npm install
+npm run dev                     # web http://localhost:5180 · server :8787
+curl "http://localhost:8787/api/aai/tts?text=What%20a%20finish" -o finish.wav
+```
+
+Open the demo studio (a real T20I replay), go to **Auto Live** to turn on the commentator, and to **Voice AI** to talk to it.
+
+## Deploy (Vercel)
+
+`vercel.json` deploys the whole app — web UI, REST, Socket.IO and the optional FFmpeg/Chromium producer — as one **Vercel Container** from `Dockerfile.vercel`. Set **`ASSEMBLYAI_API_KEY`** (Production + Preview) in Project → Settings → Environment Variables and redeploy. RTMP streaming is disabled there (`STREAMING_DISABLED=1`); run the Docker image on a VM for 24/7 multistreaming.
+
+## Using AssemblyAI's dashboard agent
+
+The integration was built against the AssemblyAI docs (`llms.txt`). The AssemblyAI dashboard agent (assemblyai.com/dashboard/agent) needs a signed-in browser session and hasn't been used on this repo yet.
 
 ---
+
+# Full studio reference (inherited from CricStudio)
+
 
 ## Quick start (no Docker needed)
 
@@ -146,7 +197,7 @@ The poller compares each new delivery with the last one it saw and emits:
 
 A manual cut pins your scene for 30s, and overlays have priorities and a queue. **Fire a moment** buttons let you trigger any event for rehearsals.
 
-### Audio — 100% royalty-free (plus the AI commentator voice)
+### Audio — 100% royalty-free music, AssemblyAI commentator voice
 
 - **Music**: 6 original tracks generated live in the browser with a WebAudio sequencer:
   - Stadium Anthem, Powerplay Pulse, Chill Pitch, Tea Break Lo-fi, DRS Tension, Victory Lap.
@@ -178,7 +229,7 @@ There is one poller per match no matter how many studios watch it.
 
 ```
 ┌──────────── Browser (host) ─────────────┐        ┌────────────── Server (Node) ──────────────┐
-│ React + MUI (Material 3) studio UI      │        │ Fastify REST  ·  Socket.IO (state, signaling)│
+│ React + MUI studio UI (AssemblyAI style)│        │ Fastify REST  ·  Socket.IO (state, signaling)│
 │ MeshRTC ⇄ guests (P2P, ≤5 + program)    │◄─────►│ StudioRoom: authoritative scene/overlay state│
 │ ProgramRenderer → 1920×1080 canvas 30fps│ ws     │ AutomationEngine (rules, queue, pins)        │
 │ AudioEngine: voices+music+sfx → mix     │        │ MatchHub → ESPN pollers → EventDetector     │

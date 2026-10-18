@@ -1,8 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Server } from 'socket.io';
-import { BACKGROUNDS, EDGE_LANG_VOICES, GNANI_VOICES, type LiveStatus, type AiCommentaryStatus, type ChatMessage, type CommentaryLine, type CricketEvent, type MatchDetail, type MatchListItem, type Participant, type StudioState, type SttProvider, type Suggestion } from '@cricstudio/shared';
-import { eventFacts, geminiCommentary, gnaniSpeech, matchFacts } from '../commentary/ai';
+import { AAI_VOICES, BACKGROUNDS, DEFAULT_LLM_MODEL, EDGE_LANG_VOICES, SCENE_IDS, type LiveStatus, type AiCommentaryStatus, type ChatMessage, type CommentaryLine, type CricketEvent, type MatchDetail, type MatchListItem, type Participant, type StudioState, type SttProvider, type Suggestion } from '@cricstudio/shared';
+import { aaiCommentary, aaiRecap, aaiSpeech, eventFacts, matchFacts } from '../commentary/ai';
+import { envKey, llm, streamingToken, voiceAgentToken } from '../assemblyai';
 import { AutomationEngine } from '../automation/rules';
 import { Commentator } from '../commentary/commentator';
 import { translateLine } from '../commentary/translate';
@@ -51,7 +52,7 @@ export function defaultState(rec: StudioRecord): StudioState {
       captions: false,
       sfx: true,
       sfxVolume: 0.8,
-      background: 'stadiumNight',
+      background: 'assemblyai',
       transition: 'mixed',
       fx3d: true,
       pollQuestion: 'Who wins this match? Vote in the comments!',
@@ -72,12 +73,13 @@ export function defaultState(rec: StudioRecord): StudioState {
       autoMusic: true,
       autoMatch: false,
       cloud: false,
-      writer: 'templates',
-      voiceEngine: 'edge',
-      gnaniVoice: 'Shubham',
+      writer: envKey() ? 'assemblyai' : 'templates',
+      voiceEngine: envKey() ? 'assemblyai' : 'edge',
+      aaiVoice: 'charles',
+      llmModel: process.env.COMMENTARY_MODEL || DEFAULT_LLM_MODEL,
       commentaryLanguage: 'en-IN',
     },
-    stt: { provider: 'browser', language: 'en-IN', geminiModel: 'gemini-2.5-flash', configured: { gnani: false, google: false, gemini: false } },
+    stt: { provider: envKey() ? 'assemblyai' : 'browser', language: 'en-IN', llmModel: process.env.COMMENTARY_MODEL || DEFAULT_LLM_MODEL, configured: { assemblyai: !!envKey() } },
     transition: 'fadeZoom',
     wantLive: false,
   };
@@ -140,7 +142,8 @@ export class StudioRoom {
     // speech-to-text API keys: encrypted at rest, kept out of the broadcast state
     const savedKeys = ((saved as { sttKeys?: Partial<Record<CloudStt, string>> }).sttKeys ?? {}) as Partial<Record<CloudStt, string>>;
     for (const p of CLOUD_STT) if (typeof savedKeys[p] === 'string' && savedKeys[p]) this.sttKeys[p] = savedKeys[p];
-    this.state.stt.configured = { gnani: !!this.sttKeys.gnani, google: !!this.sttKeys.google, gemini: !!this.sttKeys.gemini };
+    migrateLegacyAi(this.state);
+    this.state.stt.configured = { assemblyai: !!this.sttKey('assemblyai') };
     this.state.sceneUntil = null;
     if (this.state.scene !== this.state.baseScene) this.state.scene = this.state.baseScene;
     this.automation = new AutomationEngine({
@@ -231,73 +234,81 @@ export class StudioRoom {
 
   /**
    * Language the commentary is actually spoken in. Edge has no Punjabi voice, so Punjabi is
-   * commentated in Hindi unless Gnani (which speaks Punjabi) is doing the voice.
+   * commentated in Hindi (AssemblyAI voices speak English and European languages).
    */
   private spokenLang(): string {
     const ap = this.state.autopilot;
     const lang = ap.commentaryLanguage ?? 'en-IN';
     if (lang.startsWith('en') || EDGE_LANG_VOICES[lang]) return lang;
-    const gnani = ap.voiceEngine === 'gnani' && !!this.sttKey('gnani') && Date.now() >= this.gnaniDownUntil;
-    return gnani ? lang : 'hi-IN';
+    return 'hi-IN';
   }
 
   /** An English template/system line in the commentary language (free translation; English if it fails). */
   private async localize(text: string): Promise<{ text: string; lang: string }> {
     const lang = this.spokenLang();
     if (lang.startsWith('en')) return { text, lang };
-    const out = await translateLine(text, lang);
+    const out = await translateLine(text, lang, 5000, this.sttKey('assemblyai') ?? undefined);
     return out ? { text: out, lang } : { text, lang: 'en-IN' };
   }
 
-  /** Gemini rewrite of a commentary moment, or the template line translated into the commentary language. */
+  /** LLM Gateway rewrite of a commentary moment, or the template line translated into the commentary language. */
   private async writeLine(ev: CricketEvent | null, fallback: string, recent: string[]): Promise<{ text: string; ai: boolean; lang: string }> {
     const r = await this.writeAi(ev, fallback, recent);
     if (r.ai) return { ...r, lang: this.spokenLang() };
     return { ...(await this.localize(fallback)), ai: false };
   }
 
-  /** Gemini rewrite of a commentary moment; resolves to the template line whenever AI is off or failing. */
+  /** LLM Gateway rewrite of a commentary moment; resolves to the template line whenever AI is off or failing. */
   private async writeAi(ev: CricketEvent | null, fallback: string, recent: string[]): Promise<{ text: string; ai: boolean }> {
     const ap = this.state.autopilot;
-    if (ap.writer !== 'gemini') return { text: fallback, ai: false };
-    if (Date.now() < this.geminiDownUntil) return { text: fallback, ai: false }; // cooling off after a failure
-    const key = this.sttKey('gemini');
+    if (ap.writer !== 'assemblyai') return { text: fallback, ai: false };
+    if (Date.now() < this.llmDownUntil) return { text: fallback, ai: false }; // cooling off after a failure
+    const key = this.sttKey('assemblyai');
     if (!key) {
-      this.setAiStatus({ writer: 'fallback', error: 'Gemini selected but no Google AI Studio key is saved' });
+      this.setAiStatus({ writer: 'fallback', error: 'AssemblyAI writer selected but no AssemblyAI API key is available' });
       return { text: fallback, ai: false };
     }
     try {
-      const text = await geminiCommentary({
+      const text = await aaiCommentary({
         key,
-        model: this.state.stt.geminiModel,
+        model: this.llmModel(),
         language: this.spokenLang(),
         facts: matchFacts(this.latestMatch, this.state.countdownTo),
         event: eventFacts(ev, this.latestMatch),
         fallback,
         recent,
       });
-      this.setAiStatus({ writer: 'gemini', error: undefined });
+      this.setAiStatus({ writer: 'assemblyai', error: undefined });
       return { text, ai: true };
     } catch (e) {
-      this.geminiDownUntil = Date.now() + 30_000; // don't make every line wait on a failing API
+      this.llmDownUntil = Date.now() + 30_000; // don't make every line wait on a failing API
       this.setAiStatus({ writer: 'fallback', error: (e as Error).message });
       return { text: fallback, ai: false };
     }
   }
 
-  private geminiDownUntil = 0;
-  private gnaniDownUntil = 0;
+  private llmDownUntil = 0;
+  private ttsDownUntil = 0;
+
+  private llmModel() {
+    return this.state.autopilot.llmModel || this.state.stt.llmModel || DEFAULT_LLM_MODEL;
+  }
+
+  /** AssemblyAI key for this studio (saved studio key, else ASSEMBLYAI_API_KEY). Never sent to browsers. */
+  aaiKey(): string | null {
+    return this.sttKey('assemblyai');
+  }
 
   private setAiStatus(p: Partial<AiCommentaryStatus>) {
     const ap = this.state.autopilot;
-    const base: AiCommentaryStatus = this.state.aiStatus ?? { writer: ap.writer === 'gemini' ? 'gemini' : 'templates', voice: ap.voiceEngine === 'gnani' ? 'gnani' : 'edge' };
+    const base: AiCommentaryStatus = this.state.aiStatus ?? { writer: ap.writer === 'assemblyai' ? 'assemblyai' : 'templates', voice: ap.voiceEngine === 'assemblyai' ? 'assemblyai' : 'edge' };
     const next = { ...base, ...p };
     if (JSON.stringify(next) === JSON.stringify(this.state.aiStatus)) return;
     this.state.aiStatus = next;
     this.commit();
   }
 
-  /** recent lines (id -> line + Gnani audio) so 'commentary:tts' can only voice what the commentator said */
+  /** recent lines (id -> line + AssemblyAI audio) so 'commentary:tts' can only voice what the commentator said */
   private lines = new Map<string, { line: CommentaryLine; audio?: Promise<Buffer> }>();
 
   private speak(lineIn: CommentaryLine) {
@@ -305,23 +316,22 @@ export class StudioRoom {
     // commentator lines carry the language they were written/translated in; anything else is English
     const lang = lineIn.lang ?? (lineIn.ai ? this.spokenLang() : 'en-IN');
     const edgeVoice = lang.startsWith('en') ? ap.voice : (EDGE_LANG_VOICES[lang] ?? ap.voice);
-    const gnani = ap.voiceEngine === 'gnani' && !!this.sttKey('gnani') && Date.now() >= this.gnaniDownUntil;
-    if (ap.voiceEngine === 'gnani' && !gnani) this.setAiStatus({ voice: 'fallback', error: 'Gnani voice selected but no Gnani key is saved' });
-    const line: CommentaryLine = { ...lineIn, lang, voice: edgeVoice, engine: gnani ? 'gnani' : 'edge' };
+    const aaiOk = ap.voiceEngine === 'assemblyai' && !!this.sttKey('assemblyai') && Date.now() >= this.ttsDownUntil && lang.startsWith('en');
+    if (ap.voiceEngine === 'assemblyai' && !this.sttKey('assemblyai')) this.setAiStatus({ voice: 'fallback', error: 'AssemblyAI voice selected but no AssemblyAI API key is available' });
+    const line: CommentaryLine = { ...lineIn, lang, voice: edgeVoice, engine: aaiOk ? 'assemblyai' : 'edge' };
     const entry: { line: CommentaryLine; audio?: Promise<Buffer> } = { line };
-    if (gnani) {
+    if (aaiOk) {
       // start synthesis now so the audio is ready (or nearly) when the program page asks for it
-      entry.audio = gnaniSpeech({
-        key: this.sttKey('gnani')!,
+      entry.audio = aaiSpeech({
+        key: this.sttKey('assemblyai')!,
         text: line.text,
-        voice: GNANI_VOICES.some((v) => v.id === ap.gnaniVoice) ? ap.gnaniVoice! : 'Shubham',
-        language: lang,
+        voice: AAI_VOICES.some((v) => v.id === ap.aaiVoice) ? ap.aaiVoice! : 'charles',
         excited: line.priority >= 2,
       });
       entry.audio.then(
-        () => this.setAiStatus({ voice: 'gnani' }),
+        () => this.setAiStatus({ voice: 'assemblyai' }),
         (e: Error) => {
-          this.gnaniDownUntil = Date.now() + 30_000;
+          this.ttsDownUntil = Date.now() + 30_000;
           this.setAiStatus({ voice: 'fallback', error: e.message });
         },
       );
@@ -342,7 +352,7 @@ export class StudioRoom {
     this.speak({ id: `m${Date.now()}`, text, voice: this.state.autopilot.voice, priority, ts: Date.now(), lang });
   }
 
-  /** Gnani audio for a line this room spoke (WAV), or null -> client uses the Edge fallback voice. */
+  /** AssemblyAI audio for a line this room spoke (WAV), or null -> client uses the Edge fallback voice. */
   async ttsLine(id: string): Promise<Buffer | null> {
     const e = this.lines.get(id);
     if (!e?.audio) return null;
@@ -358,12 +368,12 @@ export class StudioRoom {
     const ap = this.state.autopilot;
     const fallback = 'What a shot! That races away to the boundary for four.';
     const out: { text: string; ai: boolean; lang?: string; writerError?: string; voiceOk?: boolean; voiceError?: string; audio?: Buffer } = { text: fallback, ai: false };
-    if (ap.writer === 'gemini') {
-      const key = this.sttKey('gemini');
-      if (!key) out.writerError = 'No Google AI Studio key saved';
+    if (ap.writer === 'assemblyai') {
+      const key = this.sttKey('assemblyai');
+      if (!key) out.writerError = 'No AssemblyAI API key available';
       else
         try {
-          out.text = await geminiCommentary({ key, model: this.state.stt.geminiModel, language: this.spokenLang(), facts: matchFacts(this.latestMatch), event: 'A cracking boundary just now.', fallback, recent: [] });
+          out.text = await aaiCommentary({ key, model: this.llmModel(), language: this.spokenLang(), facts: matchFacts(this.latestMatch), event: 'A cracking boundary just now.', fallback, recent: [] });
           out.ai = true;
         } catch (e) {
           out.writerError = (e as Error).message;
@@ -372,12 +382,12 @@ export class StudioRoom {
     let lang = out.ai ? this.spokenLang() : 'en-IN';
     if (!out.ai) ({ text: out.text, lang } = await this.localize(out.text));
     out.lang = lang;
-    if (ap.voiceEngine === 'gnani') {
-      const key = this.sttKey('gnani');
-      if (!key) out.voiceError = 'No Gnani key saved';
+    if (ap.voiceEngine === 'assemblyai') {
+      const key = this.sttKey('assemblyai');
+      if (!key) out.voiceError = 'No AssemblyAI API key available';
       else
         try {
-          out.audio = await gnaniSpeech({ key, text: out.text, voice: ap.gnaniVoice ?? 'Shubham', language: lang, excited: true });
+          out.audio = await aaiSpeech({ key, text: out.text, voice: ap.aaiVoice ?? 'charles', excited: true });
           out.voiceOk = true;
         } catch (e) {
           out.voiceError = (e as Error).message;
@@ -598,21 +608,21 @@ export class StudioRoom {
   /* ---------------- speech-to-text (live captions) ---------------- */
 
   /** Update provider/language/model and save or clear API keys (null/'' clears). */
-  setStt(p: { provider?: SttProvider; language?: string; geminiModel?: string; keys?: Partial<Record<CloudStt, string | null>> }) {
+  setStt(p: { provider?: SttProvider; language?: string; llmModel?: string; keys?: Partial<Record<CloudStt, string | null>> }) {
     const stt = { ...this.state.stt };
     if (p.provider && (p.provider === 'browser' || CLOUD_STT.includes(p.provider))) stt.provider = p.provider;
     if (typeof p.language === 'string' && /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(p.language)) stt.language = p.language;
-    if (typeof p.geminiModel === 'string' && /^[\w.\-/]{3,80}$/.test(p.geminiModel.trim())) stt.geminiModel = p.geminiModel.trim();
+    if (typeof p.llmModel === 'string' && /^[\w.\-/]{3,80}$/.test(p.llmModel.trim())) stt.llmModel = p.llmModel.trim();
     for (const k of CLOUD_STT) {
       const v = p.keys?.[k];
       if (v === undefined) continue;
       if (v === null || !String(v).trim()) delete this.sttKeys[k];
       else this.sttKeys[k] = encrypt(String(v).trim().slice(0, 400));
     }
-    stt.configured = { gnani: !!this.sttKeys.gnani, google: !!this.sttKeys.google, gemini: !!this.sttKeys.gemini };
     this.state.stt = stt;
+    stt.configured = { assemblyai: !!this.sttKey('assemblyai') };
     this.state.aiStatus = undefined; // keys changed: let the AI commentary status re-evaluate
-    this.geminiDownUntil = this.gnaniDownUntil = 0;
+    this.llmDownUntil = this.ttsDownUntil = 0;
     this.commit();
     void this.persist();
     return stt;
@@ -620,9 +630,9 @@ export class StudioRoom {
 
   private sttKey(p: CloudStt): string | null {
     try {
-      return this.sttKeys[p] ? decrypt(this.sttKeys[p]!) : null;
+      return this.sttKeys[p] ? decrypt(this.sttKeys[p]!) : envKey() || null;
     } catch {
-      return null; // secret rotated
+      return envKey() || null; // secret rotated
     }
   }
 
@@ -636,13 +646,13 @@ export class StudioRoom {
       const key = this.sttKey(p);
       if (!key) continue;
       try {
-        return { text: await transcribeWith(p, { wav, language: stt.language, key, geminiModel: stt.geminiModel, hints }), provider: p };
+        return { text: await transcribeWith(p, { wav, language: stt.language, key, hints }), provider: p };
       } catch (e) {
         lastErr = e as Error;
         console.warn(`[stt] ${p} failed: ${lastErr.message}`);
       }
     }
-    throw lastErr ?? new Error('No speech-to-text API key saved');
+    throw lastErr ?? new Error('No AssemblyAI API key available');
   }
 
   /** Check a key (the saved one when `key` is omitted) with half a second of silence. */
@@ -651,11 +661,100 @@ export class StudioRoom {
     const t0 = Date.now();
     if (!k) return { ok: false, error: 'No API key saved', ms: 0 };
     try {
-      await transcribeWith(p, { wav: silentWav(), language: this.state.stt.language, key: k, geminiModel: this.state.stt.geminiModel, hints: [] });
+      await transcribeWith(p, { wav: silentWav(), language: this.state.stt.language, key: k, hints: [] });
       return { ok: true, ms: Date.now() - t0 };
     } catch (e) {
       return { ok: false, error: (e as Error).message, ms: Date.now() - t0 };
     }
+  }
+
+  /* ---------------- AssemblyAI extras ---------------- */
+
+  /** Temporary token for Universal-Streaming realtime captions / voice commands. */
+  async sttToken(): Promise<string> {
+    const k = this.aaiKey();
+    if (!k) throw new Error('No AssemblyAI API key available');
+    return streamingToken(k);
+  }
+
+  /** Single-use Voice Agent token + live context for the talk-to-commentator agent. */
+  async agentSession(): Promise<{ token: string; voice: string; context: string; keyterms: string[] }> {
+    const k = this.aaiKey();
+    if (!k) throw new Error('No AssemblyAI API key available');
+    return {
+      token: await voiceAgentToken(k),
+      voice: this.state.autopilot.aaiVoice ?? 'charles',
+      context: matchFacts(this.latestMatch, this.state.countdownTo),
+      keyterms: cricketHints(this.latestMatch).slice(0, 100),
+    };
+  }
+
+  /** Live scorecard facts for agent tool calls. */
+  matchContext(): string {
+    return matchFacts(this.latestMatch, this.state.countdownTo);
+  }
+
+  private recentLines(): string[] {
+    return [...this.lines.values()].map((e) => e.line.text).slice(-12);
+  }
+
+  /** LLM Gateway studio recap of the match so far, spoken by the commentator. */
+  async recap(speak = true): Promise<{ ok: boolean; text?: string; error?: string }> {
+    const k = this.aaiKey();
+    if (!k) return { ok: false, error: 'No AssemblyAI API key available' };
+    try {
+      const text = await aaiRecap({ key: k, model: this.llmModel(), facts: this.matchContext(), recent: this.recentLines() });
+      if (speak) this.speak({ id: `r${Date.now()}`, text, voice: this.state.autopilot.voice, priority: 3, ts: Date.now(), lang: 'en-IN', ai: true });
+      return { ok: true, text };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  /**
+   * Hands-free producer: a spoken command (transcribed by Universal-Streaming in the host's browser)
+   * is turned into a studio action by LLM Gateway — "show the batting card", "give me a recap", ...
+   */
+  async voiceCommand(text: string): Promise<{ ok: boolean; action?: string; scene?: string; say?: string; error?: string }> {
+    const k = this.aaiKey();
+    if (!k) return { ok: false, error: 'No AssemblyAI API key available' };
+    const scenes = SCENE_IDS.join(', ');
+    // fast path: obvious scene names never need the LLM
+    const quick = quickScene(text);
+    if (quick) return this.applySceneCommand(quick);
+    if (/\b(recap|summary|summari[sz]e|catch me up)\b/i.test(text)) {
+      const r = await this.recap(true);
+      return { ok: r.ok, action: 'recap', say: r.text, error: r.error };
+    }
+    try {
+      const { text: out } = await llm(k, [
+        { role: 'system', content: `You control a live cricket broadcast studio. Map the producer's spoken command to ONE JSON object and reply with JSON only.\nShapes: {"action":"scene","scene":"<id>"} | {"action":"recap"} | {"action":"say","text":"<line for the commentator>"} | {"action":"none"}.\nScene ids: ${scenes}.\nExamples: "show the scorecard" -> scoreHero; "batting card" -> battingCard; "bowling figures" -> bowlingCard; "worm"/"run chase graph" -> worm; "win probability" -> winPredictor; "take a break" -> break.` },
+        { role: 'user', content: text },
+      ], { model: this.llmModel(), maxTokens: 80, temperature: 0, timeoutMs: 6000 });
+      const j = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+      if (j.action === 'scene' && SCENE_IDS.includes(j.scene)) return this.applySceneCommand(j.scene);
+      if (j.action === 'recap') {
+        const r = await this.recap(true);
+        return { ok: r.ok, action: 'recap', say: r.text, error: r.error };
+      }
+      if (j.action === 'say' && typeof j.text === 'string') {
+        this.announce(j.text.slice(0, 300));
+        return { ok: true, action: 'say', say: j.text };
+      }
+      return { ok: true, action: 'none' };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  private applySceneCommand(scene: StudioState['scene']) {
+    this.state.scene = scene;
+    this.state.baseScene = scene;
+    this.state.sceneUntil = null;
+    this.state.pinnedUntil = Date.now() + 30_000;
+    this.automation.noteManualScene();
+    this.commit();
+    return { ok: true, action: 'scene', scene };
   }
 
   async persist() {
@@ -714,4 +813,47 @@ export class StudioRoom {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     void this.persist();
   }
+}
+
+/** Studios saved before the AssemblyAI migration used other AI providers — map their settings over. */
+function migrateLegacyAi(st: StudioState) {
+  const ap = st.autopilot as any;
+  if (ap.writer && ap.writer !== 'templates' && ap.writer !== 'assemblyai') ap.writer = 'assemblyai';
+  if (ap.voiceEngine && ap.voiceEngine !== 'edge' && ap.voiceEngine !== 'assemblyai') ap.voiceEngine = 'assemblyai';
+  for (const k of Object.keys(ap)) if (/Voice$/.test(k) && k !== 'aaiVoice') delete ap[k];
+  if (!AAI_VOICES.some((v) => v.id === ap.aaiVoice)) ap.aaiVoice = 'charles';
+  const stt = st.stt as any;
+  if (stt.provider !== 'browser' && stt.provider !== 'assemblyai') stt.provider = 'assemblyai';
+  if (!stt.llmModel) stt.llmModel = DEFAULT_LLM_MODEL;
+  for (const k of Object.keys(stt)) if (/Model$/.test(k) && k !== 'llmModel') delete stt[k];
+}
+
+const SCENE_WORDS: [RegExp, StudioState['scene']][] = [
+  [/batting (card|scorecard)|batting/i, 'battingCard'],
+  [/bowling (card|figures)|bowling|bowlers/i, 'bowlingCard'],
+  [/ball.?by.?ball|last balls|recent balls/i, 'ballByBall'],
+  [/worm/i, 'worm'],
+  [/manhattan/i, 'manhattan'],
+  [/win (predictor|probability)|who (will|is going to) win/i, 'winPredictor'],
+  [/projected score|projection/i, 'projectedScore'],
+  [/partnership/i, 'partnerships'],
+  [/fall of wickets/i, 'fallOfWickets'],
+  [/wagon ?wheel/i, 'wagonWheel'],
+  [/run ?rate/i, 'runRateGraph'],
+  [/chase|calculator|equation/i, 'chaseCalculator'],
+  [/playing (xi|eleven)|line.?ups?|squads?/i, 'playingXI'],
+  [/(at the )?crease|batters/i, 'batters'],
+  [/key moments|highlights/i, 'keyMoments'],
+  [/match report/i, 'matchReport'],
+  [/(live )?score(board)?|scorecard/i, 'scoreHero'],
+  [/commentary desk/i, 'commentaryDesk'],
+  [/panel|experts?/i, 'panel'],
+  [/break|brb/i, 'break'],
+  [/starting soon/i, 'startingSoon'],
+];
+
+function quickScene(text: string): StudioState['scene'] | null {
+  if (!/\b(show|switch|go|cut|put|bring|take|open|display|pull)\b/i.test(text) && text.split(/\s+/).length > 4) return null;
+  for (const [re, id] of SCENE_WORDS) if (re.test(text) && SCENE_IDS.includes(id)) return id;
+  return null;
 }

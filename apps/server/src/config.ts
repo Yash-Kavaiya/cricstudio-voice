@@ -74,7 +74,7 @@ for (const d of [config.dataDir, resolve(config.dataDir, 'uploads')]) {
 
 export function iceServers() {
   const list: { urls: string | string[]; username?: string; credential?: string }[] = [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: ['stun:stun.cloudflare.com:3478'] },
   ];
   if (config.turn.url) list.push({ urls: config.turn.url, username: config.turn.username, credential: config.turn.credential });
   return list;

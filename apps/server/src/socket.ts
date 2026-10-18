@@ -5,7 +5,7 @@ import {
   SCENE_IDS,
   TRANSITIONS,
   VOICES,
-  GNANI_VOICES,
+  AAI_VOICES,
   STT_LANGUAGES,
   type AutopilotSettings,
   type ChatMessage,
@@ -51,9 +51,10 @@ function sanitizeAutopilot(cur: AutopilotSettings, p: Partial<AutopilotSettings>
     autoMusic: typeof p.autoMusic === 'boolean' ? p.autoMusic : cur.autoMusic,
     autoMatch: typeof p.autoMatch === 'boolean' ? p.autoMatch : cur.autoMatch,
     cloud: typeof p.cloud === 'boolean' ? p.cloud : cur.cloud,
-    writer: p.writer === 'gemini' || p.writer === 'templates' ? p.writer : (cur.writer ?? 'templates'),
-    voiceEngine: p.voiceEngine === 'gnani' || p.voiceEngine === 'edge' ? p.voiceEngine : (cur.voiceEngine ?? 'edge'),
-    gnaniVoice: p.gnaniVoice && GNANI_VOICES.some((v) => v.id === p.gnaniVoice) ? p.gnaniVoice : (cur.gnaniVoice ?? 'Shubham'),
+    writer: p.writer === 'assemblyai' || p.writer === 'templates' ? p.writer : (cur.writer ?? 'templates'),
+    voiceEngine: p.voiceEngine === 'assemblyai' || p.voiceEngine === 'edge' ? p.voiceEngine : (cur.voiceEngine ?? 'edge'),
+    aaiVoice: p.aaiVoice && AAI_VOICES.some((v) => v.id === p.aaiVoice) ? p.aaiVoice : (cur.aaiVoice ?? 'charles'),
+    llmModel: typeof p.llmModel === 'string' && /^[\w.\-/]{3,80}$/.test(p.llmModel) ? p.llmModel : cur.llmModel,
     commentaryLanguage:
       p.commentaryLanguage && STT_LANGUAGES.some((l) => l.code === p.commentaryLanguage) ? p.commentaryLanguage : (cur.commentaryLanguage ?? 'en-IN'),
   };
@@ -377,7 +378,50 @@ export function registerSocket(io: Server, studios: StudioManager, hub: MatchHub
       }
     });
 
-    // Gnani voice for a commentary line (only lines this room actually spoke)
+    // AssemblyAI: Universal-Streaming temp token for realtime captions (anyone on stage)
+    socket.on('stt:token', async (_p: unknown, ack: Ack = noop) => {
+      const r = room();
+      if (!r || !self()) return ack({ ok: false, error: 'Not in a studio' });
+      try {
+        ack({ ok: true, token: await r.sttToken() });
+      } catch (e) {
+        ack({ ok: false, error: (e as Error).message });
+      }
+    });
+
+    // realtime caption text from AssemblyAI streaming (partials + finals) -> everyone + program output
+    socket.on('stt:caption', ({ text, final }: { text: string; final: boolean }) => {
+      const r = room();
+      if (!r || typeof text !== 'string' || !text.trim()) return;
+      io.to(r.roomName).emit('captions:text', { from: data.name ?? '', text: text.slice(-200), final: !!final, ts: Date.now() });
+    });
+
+    // AssemblyAI Voice Agent: talk to the commentator (anyone in the studio)
+    socket.on('agent:session', async (_p: unknown, ack: Ack = noop) => {
+      const r = room();
+      if (!r) return ack({ ok: false, error: 'Not in a studio' });
+      try {
+        ack({ ok: true, ...(await r.agentSession()) });
+      } catch (e) {
+        ack({ ok: false, error: (e as Error).message });
+      }
+    });
+    socket.on('agent:context', (_p: unknown, ack: Ack = noop) => {
+      const r = room();
+      ack(r ? { ok: true, context: r.matchContext() } : { ok: false });
+    });
+
+    // AssemblyAI LLM Gateway: studio recap + hands-free voice commands (host)
+    socket.on('ai:recap', asHost(async (r, _p: unknown, ack: Ack = noop) => ack(await r.recap(true))));
+    socket.on(
+      'voice:command',
+      asHost(async (r, p: { text: string }, ack: Ack = noop) => {
+        if (typeof p?.text !== 'string' || !p.text.trim()) return ack({ ok: false, error: 'Empty command' });
+        ack(await r.voiceCommand(p.text.slice(0, 300)));
+      }),
+    );
+
+    // AssemblyAI voice for a commentary line (only lines this room actually spoke)
     socket.on('commentary:tts', async ({ id }: { id: string }, ack: Ack = noop) => {
       const r = room();
       if (!r || typeof id !== 'string') return ack({ ok: false });

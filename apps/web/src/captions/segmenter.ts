@@ -1,4 +1,4 @@
-// Cuts a live mic into spoken phrases for cloud speech-to-text (Gnani / Google / Gemini).
+// Cuts a live mic into spoken phrases (16 kHz WAV) — used for AssemblyAI async phrase transcription.
 // An AudioWorklet reports 20 ms frames; an adaptive energy VAD opens a phrase on speech and closes
 // it after a pause (or at a hard cap), then the phrase is resampled to 16 kHz mono 16-bit WAV.
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AAI } from '../../theme';
 import { Alert, Box, ButtonBase, Chip, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
 import { STT_LANGUAGES, type SttProvider } from '@cricstudio/shared';
 import { speechSupported } from '../../captions/speech';
@@ -7,45 +8,21 @@ import { ApiKeyField } from './ApiKeyField';
 import type { StudioClient } from '../../lib/studioClient';
 import { Icon } from '../Icon';
 
-const ENGINES: { id: SttProvider; name: string; desc: string; icon: string; keyLabel?: string; keyHelp?: string; keyUrl?: string }[] = [
+const ENGINES: { id: SttProvider; name: string; desc: string; icon: string }[] = [
+  {
+    id: 'assemblyai',
+    name: 'AssemblyAI Universal-Streaming',
+    desc: 'Realtime word-by-word captions over WebSocket (~300 ms), formatted turns, player names boosted as key terms. Also powers hands-free voice commands.',
+    icon: 'graphic_eq',
+  },
   { id: 'browser', name: 'Browser speech', desc: 'Free · Chrome/Edge built-in recognition. Always used as the fallback.', icon: 'language' },
-  {
-    id: 'gnani',
-    name: 'Gnani Prisma',
-    desc: 'Indian-language specialist · English + Hinglish, Hindi and 8 more. Boosted with player names.',
-    icon: 'record_voice_over',
-    keyLabel: 'Gnani API key',
-    keyHelp: 'Create one at app.gnani.ai → Voice → API keys',
-    keyUrl: 'https://app.gnani.ai/voice/',
-  },
-  {
-    id: 'google',
-    name: 'Google Cloud Speech-to-Text',
-    desc: 'Enterprise speech recognition with cricket phrase hints. Needs an API key with Speech-to-Text enabled.',
-    icon: 'cloud',
-    keyLabel: 'Google Cloud API key',
-    keyHelp: 'Cloud Console → APIs & Services → Credentials (enable "Cloud Speech-to-Text API")',
-    keyUrl: 'https://console.cloud.google.com/apis/library/speech.googleapis.com',
-  },
-  {
-    id: 'gemini',
-    name: 'Google AI Studio (Gemini)',
-    desc: 'Gemini audio model transcribes each phrase, understands cricket context and names.',
-    icon: 'auto_awesome',
-    keyLabel: 'Google AI Studio API key',
-    keyHelp: 'aistudio.google.com → Get API key',
-    keyUrl: 'https://aistudio.google.com/apikey',
-  },
 ];
-
-const GNANI_LANGS = new Set(['en-IN', 'hi-IN', 'bn-IN', 'gu-IN', 'kn-IN', 'ml-IN', 'mr-IN', 'pa-IN', 'ta-IN', 'te-IN']);
 
 /** Live-caption engine picker: browser (free) or a cloud STT with a write-only API key. */
 export function CaptionsSettings({ client, hostToken }: { client: StudioClient; hostToken: string }) {
   const st = client.state!;
   const stt = st.stt;
   const status = client.captionStatus;
-  const [model, setModel] = useState(stt.geminiModel);
   const [err, setErr] = useState<string | null>(null);
 
   const save = async (body: Parameters<StudioClient['saveStt']>[0]) => {
@@ -91,8 +68,8 @@ export function CaptionsSettings({ client, hostToken }: { client: StudioClient; 
           </MenuItem>
         ))}
       </TextField>
-      {stt.provider === 'gnani' && !GNANI_LANGS.has(stt.language) && (
-        <Alert severity="warning">Gnani supports Indian languages only — pick an “-IN” language or another engine.</Alert>
+      {stt.provider === 'assemblyai' && !stt.language.startsWith('en') && (
+        <Alert severity="info">Non-English speech uses AssemblyAI's multilingual streaming model.</Alert>
       )}
 
       <Typography variant="subtitle2">Speech-to-text engine</Typography>
@@ -106,32 +83,23 @@ export function CaptionsSettings({ client, hostToken }: { client: StudioClient; 
               onClick={() => void save({ provider: e.id })}
               sx={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', gap: 1.25, p: 1.25, bgcolor: on ? 'action.selected' : 'transparent' }}
             >
-              <Icon name={e.icon} color={on ? '#1a73e8' : undefined} />
+              <Icon name={e.icon} color={on ? AAI.cobalt : undefined} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {e.name}
                   </Typography>
-                  {cloud && configured && <Chip size="small" color="success" label="Key saved" sx={{ height: 20 }} />}
+                  {cloud && configured && <Chip size="small" color="success" label="Ready" sx={{ height: 20 }} />}
                   {cloud && !configured && <Chip size="small" label="Needs key" sx={{ height: 20 }} />}
                 </Stack>
                 <Typography variant="caption" color="text.secondary">
                   {e.desc}
                 </Typography>
               </Box>
-              {on && <Icon name="radio_button_checked" color="#1a73e8" fill />}
+              {on && <Icon name="radio_button_checked" color="#3923c7" fill />}
             </ButtonBase>
             {cloud && on && (
               <Stack spacing={1} sx={{ p: 1.25, pt: 0.5 }}>
-                {cloud === 'gemini' && (
-                  <TextField
-                    label="Gemini model"
-                    value={model}
-                    onChange={(ev) => setModel(ev.target.value)}
-                    onBlur={() => model !== stt.geminiModel && void save({ geminiModel: model })}
-                    helperText="Any audio-capable Gemini model id, e.g. gemini-2.5-flash"
-                  />
-                )}
                 <ApiKeyField client={client} hostToken={hostToken} provider={cloud} />
               </Stack>
             )}
@@ -140,8 +108,7 @@ export function CaptionsSettings({ client, hostToken }: { client: StudioClient; 
       })}
       {err && <Alert severity="error">{err}</Alert>}
       <Typography variant="caption" color="text.secondary">
-        Keys are shared with the AI commentator (Auto Live tab). They are encrypted on the server and never sent back to any browser. If the chosen engine fails, CricStudio tries your other saved engines, then falls back to free
-        browser speech — captions never stop.
+        One AssemblyAI key powers captions, the AI commentator and the voice agent. It stays on the server — browsers only get short-lived streaming tokens. If streaming fails, CricStudio falls back to free browser speech — captions never stop.
       </Typography>
     </Stack>
   );

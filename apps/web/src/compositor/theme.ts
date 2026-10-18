@@ -30,12 +30,12 @@ const PHOTO: ThemeStyle = {
 
 const STYLES: Partial<Record<BackgroundId, ThemeStyle>> = {
   /* brand-inspired */
-  googleMaterial: {
+  assemblyai: {
     light: true,
-    col: { text: '#1f1f1f', ink: '#1f1f1f', sub: '#444746', dim: '#747775', card: '#ffffff', cardSolid: '#ffffff', cardHi: '#e9eef6', line: 'rgba(31,31,31,0.10)' },
-    font: { sans: f('Google Sans', 'Google Sans Text', 'Figtree'), cond: f('Google Sans', 'Figtree') },
-    card: { radius: 1.25, stroke: null, shadow: { color: 'rgba(60,64,67,0.16)', blur: 24, y: 6 } },
-    title: 'dots',
+    col: { text: '#1d1b16', ink: '#1d1b16', sub: '#4a4945', dim: '#777673', card: '#ffffff', cardSolid: '#ffffff', cardHi: '#f5f3eb', line: 'rgba(29,27,22,0.10)' },
+    font: { sans: f('Inter', 'Figtree'), cond: f('Inter', 'Figtree') },
+    card: { radius: 1.0, stroke: 'rgba(29,27,22,0.10)', strokeW: 1, shadow: { color: 'rgba(57,35,199,0.10)', blur: 28, y: 8 } },
+    title: 'bar',
   },
   microsoftFluent: {
     col: { card: 'rgba(44,46,58,0.62)', cardSolid: '#202028', cardHi: 'rgba(255,255,255,0.08)', sub: '#c8c8d0', dim: '#8a8a94', line: 'rgba(255,255,255,0.08)' },
