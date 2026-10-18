@@ -50,7 +50,7 @@ Hundreds of cricket matches every week (domestic first-class, women's leagues, a
                                │
                                ▼
  Browser (public/)  ──── single WebSocket ────►  AssemblyAI Voice Agent API
-   scorecard, ticker,        reply.create "SAY VERBATIM: <line>"   → TTS audio + word timings
+   scorecard, ticker,        reply.create "Say exactly: <line>"     → TTS audio + word timings
    captions, push-to-talk    input.audio (24 kHz PCM16 mic)        → streaming STT → LLM → TTS
                              tool.call get_match_state ◄──► tool.result (live scorecard JSON)
 ```

@@ -161,7 +161,7 @@ export async function synthesize(text, voice = 'charles') {
     }));
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
-      if (m.type === 'session.ready') ws.send(JSON.stringify({ type: 'reply.create', instructions: `Say exactly, verbatim: ${text}` }));
+      if (m.type === 'session.ready') ws.send(JSON.stringify({ type: 'reply.create', instructions: `Say exactly this and nothing else: ${text}` }));
       else if (m.type === 'reply.audio') chunks.push(Buffer.from(m.data, 'base64'));
       else if (m.type === 'reply.done') { ws.send(JSON.stringify({ type: 'session.end' })); clearTimeout(timer); resolve(Buffer.concat(chunks)); setTimeout(() => { try { ws.close(); } catch {} }, 200); }
       else if (m.type === 'session.error') { clearTimeout(timer); reject(new Error(m.message || m.code || 'session error')); }

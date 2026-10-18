@@ -16,7 +16,8 @@ export default async function handler(req, res) {
     match.title && `Match: ${match.title}`,
     match.summary && `Situation: ${match.summary}`,
     `Over ${ball.over}: ${ball.short}${ball.text ? ' — ' + ball.text : ''}`,
-    ball.wicket && `WICKET: ${ball.wicketText}`,
+    `Outcome of this ball: ${ball.wicket ? 'WICKET' : ball.six ? 'SIX' : ball.four ? 'FOUR' : ball.type || ball.runs + ' runs'} (${ball.runs} run${ball.runs === 1 ? '' : 's'} scored)`,
+    ball.wicket && `Dismissal: ${ball.wicketText}`,
     `Batting side: ${ball.team}. Score now ${ball.team} ${ball.score}${ball.runRate ? ` (RR ${ball.runRate})` : ''}${ball.target ? `, target ${ball.target}` : ''}`,
     ball.batter && `Batter ${ball.batter} ${ball.batterRuns ?? ''}${ball.batterBalls != null ? ` off ${ball.batterBalls}` : ''}`,
     ball.bowler && `Bowler ${ball.bowler} ${ball.bowlerFigures}`,
@@ -26,9 +27,9 @@ export default async function handler(req, res) {
   const len = ball.wicket || ball.six || ball.four || ball.overComplete ? '20-32 words' : '8-16 words';
   try {
     const out = await llmGateway([
-      { role: 'system', content: `You are a live cricket TV commentator. ${STYLES[style] || STYLES.classic}\nWrite exactly one spoken line (${len}) for the latest ball. It will be read aloud by a text-to-speech voice, so: no emojis, no hashtags, no stage directions, no quotation marks, write numbers the way a commentator says them. Never invent facts beyond the data: do not claim a result unless the situation says the match is won, and keep the batting side and bowling side straight.` },
+      { role: 'system', content: `You are a live cricket TV commentator. ${STYLES[style] || STYLES.classic}\nDescribe ONLY what the data says happened on this ball (same runs, same outcome), then optionally one short reaction. Write exactly one spoken line (${len}) for the latest ball. It will be read aloud by a text-to-speech voice, so: no emojis, no hashtags, no stage directions, no quotation marks, write numbers the way a commentator says them. Never invent facts beyond the data: do not claim a result unless the situation says the match is won, and keep the batting side and bowling side straight.` },
       { role: 'user', content: situation },
-    ]);
+    ], { temperature: 0.5 });
     send(res, 200, { line: out.text.replace(/^["']|["']$/g, ''), model: out.model, ms: out.ms });
   } catch (e) {
     // Graceful fallback so the broadcast never goes silent.

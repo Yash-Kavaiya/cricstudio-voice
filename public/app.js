@@ -16,7 +16,7 @@ class Commentator {
     const m = state.meta;
     return `You are "Ravi", the lead commentator on a live cricket broadcast called CricStudio Voice.
 Two kinds of turns happen:
-1) Instructions starting with SAY VERBATIM: speak the given commentary text exactly, word for word, with vivid TV-commentator energy. Add nothing.
+1) The producer gives you a commentary line to read. Speak only that line, word for word, with vivid TV-commentator energy. Never read out the instruction itself, never add a prefix or anything else.
 2) A viewer talks to you through their microphone. Answer like a commentator talking to a fan: warm, quick, 1-3 sentences. ALWAYS call get_match_state first for any question about the score, players, overs or what just happened, and only use facts from it.
 Current match: ${m ? `${m.name}${m.summary ? ' — ' + m.summary : ''}` : 'loading'}.`;
   }
@@ -49,7 +49,7 @@ Current match: ${m ? `${m.name}${m.summary ? ' — ' + m.summary : ''}` : 'loadi
     if (!this.ws) return;
     this.sayStarted = performance.now(); this.firstAudio = true;
     this.setBusy(true);
-    this.send({ type: 'reply.create', instructions: `SAY VERBATIM: ${text}` });
+    this.send({ type: 'reply.create', instructions: `Say exactly this and nothing else: ${text}` });
     await this.idle();
     await this.drain();
   }
