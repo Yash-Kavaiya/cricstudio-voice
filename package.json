@@ -1,0 +1,12 @@
+{
+  "name": "cricstudio-voice",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live AI cricket commentary you can talk to — powered end-to-end by AssemblyAI (Voice Agent TTS + streaming STT + LLM Gateway).",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "sample": "node scripts/build-sample.mjs"
+  },
+  "engines": { "node": ">=22" }
+}

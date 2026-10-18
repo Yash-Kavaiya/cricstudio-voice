@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CricStudio Voice — live AI cricket commentary you can talk to</title>
+<meta name="description" content="Live cricket scorecard with an AI commentator voiced by AssemblyAI. Ask it anything, out loud." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏏</text></svg>" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">🏏</span><div><b>CricStudio <em>Voice</em></b><small>Live AI commentary, powered by AssemblyAI</small></div></div>
+  <div class="apis">
+    <span class="api" id="api-tts" title="Voice Agent API text-to-speech">🔊 TTS</span>
+    <span class="api" id="api-stt" title="Streaming speech-to-text inside the Voice Agent API">🎙️ Streaming STT</span>
+    <span class="api" id="api-llm" title="LLM Gateway writes every commentary line">🧠 LLM Gateway</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="panel picker">
+    <h2>Pick a match</h2>
+    <button class="match demo active" data-demo="1">
+      <span class="live-dot demo-dot"></span>
+      <div><b>Demo replay: last-over thriller</b><small>Sixers W v Stars W · 6 needed, 2 wickets fall, last-ball four</small></div>
+    </button>
+    <div id="matches"><p class="muted">Loading live matches…</p></div>
+  </section>
+
+  <section class="panel board">
+    <div class="board-head">
+      <span id="league" class="muted">—</span>
+      <span id="state" class="pill">DEMO</span>
+    </div>
+    <div class="teams" id="teams"></div>
+    <div class="summary" id="summary">Press <b>Start commentary</b> to go live.</div>
+    <div class="players">
+      <div><small>On strike</small><b id="batter">—</b></div>
+      <div><small>Bowler</small><b id="bowler">—</b></div>
+      <div><small>Run rate</small><b id="rr">—</b></div>
+    </div>
+    <div class="ticker" id="ticker"></div>
+    <div class="flash" id="flash"></div>
+  </section>
+
+  <section class="panel booth">
+    <div class="booth-head">
+      <h2>Commentary box</h2>
+      <div class="controls">
+        <label>Style <select id="style">
+          <option value="hype">T20 hype</option><option value="classic">Classic</option>
+          <option value="analyst">Analyst</option><option value="desi">Desi flavour</option>
+        </select></label>
+        <label>Voice <select id="voice">
+          <option>charles</option><option>paul</option><option>anna</option><option>vera</option>
+          <option>michael</option><option>george</option><option>alba</option><option>jane</option><option>eve</option><option>mary</option><option>jean</option>
+        </select></label>
+      </div>
+    </div>
+    <div class="caption" id="caption"><span class="muted">Captions appear here word-by-word as the commentator speaks.</span></div>
+    <div class="actions">
+      <button id="start" class="primary">▶ Start commentary</button>
+      <button id="talk" class="talk" disabled>🎙️ Hold to ask the commentator</button>
+      <button id="recap" disabled>📝 Studio recap</button>
+    </div>
+    <p class="hint">Try: <i>“Who's bowling?”</i> · <i>“How many do they need?”</i> · <i>“Was that a good shot?”</i> — hold the button (or Space) while you speak.</p>
+    <ol class="feed" id="feed"></ol>
+    <div class="stats" id="stats"></div>
+  </section>
+</main>
+<footer>Built for AssemblyAI's <i>Voice Hackathon: Hack into speech</i> · Scores from ESPN's public cricket feed · <a href="https://github.com/Yash-Kavaiya/cricstudio-voice">Source</a></footer>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
