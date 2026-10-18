@@ -38,6 +38,30 @@ The API key never reaches a browser: realtime captions and the voice agent use s
 - `GET /api/assemblyai/status` — whether the server key is configured.
 - Older studios' AI settings are migrated to AssemblyAI automatically.
 
+## Previous work / real-world usage
+
+CricStudio (the base this project is built on) has already been running real cricket broadcasts on Yash's YouTube channel **[Happy Life (@HappyLifeME)](https://www.youtube.com/@HappyLifeME/streams)**.
+
+| CricStudio-era live streams | Total views | Hours live | Date range |
+| ---: | ---: | ---: | --- |
+| **50** | **14,949** | **~63.7 h** | 6 – 18 Oct 2026 (8 broadcast days) |
+
+Mostly Ranji Trophy 2026, India vs West Indies T20Is, CWC League 2 (Canada vs Nepal), the UAE ODI tri-series, women's internationals and the T20 Spring Challenge, often several matches in parallel.
+
+Top streams by views:
+
+| # | Stream | Date (IST) | Duration | Views |
+|---|---|---|---|---:|
+| 1 | [CAN vs NEP — Live Watch-along · Canada vs Nepal CWC League 2 · Live Score & AI Commentary](https://www.youtube.com/watch?v=KVSrdAbBrpw) | 2026-10-17 | 3h 55m | 3,899 |
+| 2 | [Ind V WI Live match Scorecard](https://www.youtube.com/watch?v=ba8M91eX1-4) | 2026-10-14 | 6m | 1,585 |
+| 3 | [Ind V WI Live match Scorecard ·· 4 th T20 Match](https://www.youtube.com/watch?v=7xOxivVADgA) | 2026-10-15 | 1m | 963 |
+| 4 | [IND vs WI — Live Watch-along · IND vs WI —5th T20 · Live Score & AI Commentary](https://www.youtube.com/watch?v=bSU-6mhrmbQ) | 2026-10-17 | 10m | 723 |
+| 5 | [BAN vs ZIM — Live Watch-along · ODI Tri-Nation Series UAE 2026 · Live Score & AI Commentary](https://www.youtube.com/watch?v=vw25hp_z6Fo) | 2026-10-17 | 2h 14m | 622 |
+| 6 | [CAN vs NEP — Live Watch-along · Canada vs Nepal CWC League 2 · Live Score & AI Commentary](https://www.youtube.com/watch?v=pU5QerXDXzE) | 2026-10-17 | 15m | 615 |
+| 7 | [Ind V WI Live match Scorecard ·· 4 th T20 Match](https://www.youtube.com/watch?v=cqGvBZFSFtM) | 2026-10-15 | 4m | 613 |
+| 8 | [IND vs WI —5th T20 · Overs cut start at 7:30 PM, while 9:41 PM is the deadline a match.](https://www.youtube.com/watch?v=GnSDp1q50lc) | 2026-10-17 | 2h 32m | 590 |
+<sub>Source: the channel's public <code>/streams</code> tab, scraped with <code>yt-dlp</code> on 18 Oct 2026 at about 22:30 IST. These counts cover only the CricStudio-era streams (Oct 2026). The channel also has 63 older, unrelated streams (gaming and Q&A, 2022–2025, 1,602 views) that are left out; the whole tab adds up to 113 streams and 16,551 views. "Hours live" sums the durations YouTube reports. For 10 recently ended streams that YouTube is still processing, that figure is the archive length. One stream (PAK vs SL, 1st ODI) was still live when this was scraped, so it has no duration yet. View counts change over time.</sub>
+
 ## Quick start
 
 ```bash
