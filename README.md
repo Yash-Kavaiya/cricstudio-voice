@@ -4,7 +4,7 @@
 
 CricStudio Voice is the full [CricStudio](https://github.com/Yash-Kavaiya/cricstudio) broadcast studio — 40 scenes, compositor, overlays, autopilot, multistreaming to YouTube/Facebook/X/Twitch — rebuilt around **AssemblyAI** as its only voice and language stack. Every previous third-party AI integration (the old speech-to-text, TTS and LLM providers) has been removed and replaced with AssemblyAI products.
 
-**Live:** https://cricstudio-voice.vercel.app
+**Live:** https://cricstudio-voice.vercel.app · **Demo video (3 min):** [docs/cricstudio_voice_demo.mp4](docs/cricstudio_voice_demo.mp4)
 
 ![Home](docs/home.png)
 

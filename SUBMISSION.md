@@ -2,6 +2,7 @@
 
 **One-liner:** Turn any live cricket match into a captioned, commentated broadcast that you can talk back to. Every voice and language feature runs on AssemblyAI.
 
+- **Demo video (3:02):** [docs/cricstudio_voice_demo.mp4](docs/cricstudio_voice_demo.mp4) · YouTube link: _TBD_
 - **Live demo:** https://cricstudio-voice.vercel.app
 - **Code:** https://github.com/Yash-Kavaiya/cricstudio-voice
 - **Real broadcasts made with the base studio:** https://www.youtube.com/@HappyLifeME/streams
